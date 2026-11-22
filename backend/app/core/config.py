@@ -9,7 +9,7 @@ from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]  # .../Mira/backend
@@ -41,10 +41,15 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://mira:mira@localhost:5433/mira"
 
     # Gemini
-    gemini_api_key: str | None = None
-    gemini_model_fast: str = "gemini-2.5-flash"
-    gemini_model_strong: str = "gemini-2.5-pro"
-    gemini_embedding_model: str = "gemini-embedding-001"
+    # SecretStr: printing or logging Settings shows '**********', never the key.
+    gemini_api_key: SecretStr | None = None
+    # Gemini 2.5 models return 404 for new API keys, so the defaults are Gemini 3.
+    gemini_model_fast: str = "gemini-3.1-flash-lite"
+    gemini_model_strong: str = "gemini-3.5-flash"
+    # gemini-embedding-2: compared with gemini-embedding-001 on our content, both found the
+    # right page for all test questions, but -2 separates relevant from irrelevant more clearly.
+    gemini_embedding_model: str = "gemini-embedding-2"
+    gemini_embedding_dims: int = 768  # enough for ~150 chunks; 1536 or 3072 also supported
 
     # Langfuse tracing (optional: the app runs without it)
     langfuse_public_key: str | None = None

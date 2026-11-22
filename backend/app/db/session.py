@@ -18,10 +18,10 @@ def get_sessionmaker() -> sessionmaker[Session]:
     return sessionmaker(bind=get_engine(), expire_on_commit=False)
 
 
-def check_database() -> bool:
-    """Return True if a trivial query succeeds."""
+def check_database(engine: Engine | None = None) -> bool:
+    """Return True if a trivial query succeeds. Never raises: health must always answer."""
     try:
-        with get_engine().connect() as conn:
+        with (engine or get_engine()).connect() as conn:
             conn.execute(text("SELECT 1"))
         return True
     except Exception:

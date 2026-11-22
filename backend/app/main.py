@@ -3,8 +3,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.health import router as health_router
 from app.core.config import get_settings
-from app.db.session import check_database
 
 settings = get_settings()
 
@@ -18,15 +18,4 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.get("/api/v1/health")
-def health() -> dict:
-    """Liveness plus the facts that matter for a correct run."""
-    return {
-        "status": "ok",
-        "today": settings.mira_today.isoformat(),
-        "dataset_found": settings.mira_dataset_dir.is_dir(),
-        "database": "ok" if check_database() else "unavailable",
-        "tracing": "enabled" if settings.tracing_enabled else "disabled",
-        "llm_configured": settings.gemini_api_key is not None,
-    }
+app.include_router(health_router, prefix="/api/v1")
