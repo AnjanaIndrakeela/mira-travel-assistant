@@ -1,13 +1,18 @@
 """GET /api/v1/health answers and reports the run's key facts."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 
-client = TestClient(app)
+
+@pytest.fixture(scope="module")
+def client():
+    with TestClient(app) as c:   # "with" runs the lifespan: integrity check + dataset load
+        yield c
 
 
-def test_health_is_ok():
+def test_health_is_ok(client):
     r = client.get("/api/v1/health")
     assert r.status_code == 200
     body = r.json()
@@ -16,16 +21,22 @@ def test_health_is_ok():
     assert body["dataset_found"] is True
 
 
-def test_health_reports_every_check():
+def test_health_reports_dataset_loaded_and_unchanged(client):
     body = client.get("/api/v1/health").json()
-    assert set(body) == {"status", "today", "dataset_found", "database", "tracing",
-                         "llm_configured"}
-    assert body["database"] in {"ok", "unavailable"}  # "ok" once compose runs the db (1.14)
+    assert body["dataset_integrity"] == "ok"
+    assert body["data_issues"] == 30
 
 
-def test_health_never_shows_the_api_key():
+def test_health_reports_every_check(client):
+    body = client.get("/api/v1/health").json()
+    assert set(body) == {"status", "today", "dataset_found", "dataset_integrity", "data_issues",
+                         "database", "tracing", "llm_configured"}
+    assert body["database"] in {"ok", "unavailable"}
+
+
+def test_health_never_shows_the_api_key(client):
     assert "gemini_api_key" not in client.get("/api/v1/health").text
 
 
-def test_old_unversioned_path_is_404():
+def test_old_unversioned_path_is_404(client):
     assert client.get("/health").status_code == 404
