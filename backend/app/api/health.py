@@ -8,6 +8,10 @@ from app.db.session import check_database
 router = APIRouter(tags=["health"])
 
 
+def _index_status(retriever) -> str:
+    return f"ok ({len(retriever.chunks)} chunks)" if retriever else "unavailable"
+
+
 @router.get("/health")
 def health(request: Request) -> dict:
     settings = get_settings()
@@ -22,4 +26,5 @@ def health(request: Request) -> dict:
         "database": "ok" if check_database() else "unavailable",
         "tracing": "enabled" if settings.tracing_enabled else "disabled",
         "llm_configured": settings.gemini_api_key is not None,
+        "index": _index_status(getattr(request.app.state, "retriever", None)),
     }

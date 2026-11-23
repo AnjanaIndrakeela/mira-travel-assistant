@@ -86,3 +86,27 @@ def test_starter_quotes_also_match_the_engine(dataset):
         for (t, s, a, ages), q in zip(inputs, quotes, strict=True):
             r = _quote(dict(tour_id=t, start_date=s, adults=a, child_ages=ages))
             assert (r.public.price_usd, r.public.deposit_usd) == (q["price_usd"], q["deposit_usd"]), sid
+
+
+# R4 grounding cases (step 6.14): the retriever finds the sources each case needs ---------------
+
+GROUNDED = [c for c in CASES if "retrieval" in c]
+
+
+def test_r4_case_count():
+    """Plan §8.1: ~10 R4 cases including the 6 starters (S07-S10, S16, S17)."""
+    assert len(GROUNDED) + 6 >= 10 and all(c["requirement"] == "R4" for c in GROUNDED)
+
+
+@pytest.mark.parametrize("case", GROUNDED, ids=[c["id"] for c in GROUNDED])
+def test_r4_retrieval_expectations(case):
+    from app.core.config import get_settings
+    if get_settings().gemini_api_key is None:
+        pytest.skip("needs GEMINI_API_KEY")
+    from app.rag import get_retriever
+    exp = case["retrieval"]
+    r = get_retriever().retrieve(case["turns"][-1])
+    found = [c.doc_id for c in r.chunks]
+    assert r.abstain is exp["abstain"], (r.reason, found)
+    assert set(exp["must_cite"]) <= set(found), found
+    assert not set(exp["must_not_cite"]) & set(found), found

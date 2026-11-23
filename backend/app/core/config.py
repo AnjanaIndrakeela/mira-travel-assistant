@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # Gemini 2.5 models return 404 for new API keys, so the defaults are Gemini 3.
     gemini_model_fast: str = "gemini-3.1-flash-lite"
     gemini_model_strong: str = "gemini-3.5-flash"
+    # Tried last when both models above are overloaded (503) or out of quota (429): quotas
+    # are per model, so a third model keeps chat working. Empty = no backup.
+    gemini_model_backup: str | None = "gemini-3.5-flash-lite"
     # gemini-embedding-2: compared with gemini-embedding-001 on our content, both found the
     # right page for all test questions, but -2 separates relevant from irrelevant more clearly.
     gemini_embedding_model: str = "gemini-embedding-2"
@@ -55,17 +58,40 @@ class Settings(BaseSettings):
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     langfuse_host: str = "https://cloud.langfuse.com"
+    # For trace links on the staff page. Empty = looked up once from the Langfuse API.
+    langfuse_project_id: str | None = None
+
+    # Staff sessions: how long a sign-in lasts, and whether the cookie needs HTTPS
+    # (set MIRA_COOKIE_SECURE=1 when served over HTTPS; localhost is plain HTTP).
+    mira_session_hours: float = 8.0
+    mira_cookie_secure: bool = False
 
     # Pricing overrides. Empty = use the values from the workbook's Settings tab.
     # Used for the live "change a margin rule" demo without editing the workbook.
     mira_margin_day: Decimal | None = None
     mira_margin_multiday: Decimal | None = None
 
+    # Demo staff accounts, created by app.db.seed. Passwords only from .env, stored hashed.
+    # No password set = that account is not created (never a default password).
+    mira_staff_email: str = "staff@ceylon-compass.example"
+    mira_staff_password: SecretStr | None = None
+    mira_approver_email: str = "approver@ceylon-compass.example"
+    mira_approver_password: SecretStr | None = None
+
+    # Our own media library (R8 "Ella photos"; the dataset has none)
+    mira_media_dir: Path = BACKEND_DIR / "media"
+
+    # Mock payments: 1 = every charge fails (to demo the friendly failure path). The test card
+    # 4000 0000 0000 0002 always fails too, whatever this says.
+    mock_payment_fail: bool = False
+
     # CORS origin of the frontend
-    frontend_origin: str = "http://localhost:3000"
+    frontend_origin: str = "http://localhost:3010"
 
     @field_validator("mira_margin_day", "mira_margin_multiday", "gemini_api_key",
-                     "langfuse_public_key", "langfuse_secret_key", mode="before")
+                     "mira_staff_password", "mira_approver_password",
+                     "langfuse_public_key", "langfuse_secret_key", "langfuse_project_id", "gemini_model_backup",
+                     mode="before")
     @classmethod
     def _empty_to_none(cls, v):
         return None if v == "" else v
