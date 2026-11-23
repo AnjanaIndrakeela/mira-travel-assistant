@@ -61,10 +61,21 @@ class Settings(BaseSettings):
     mira_margin_day: Decimal | None = None
     mira_margin_multiday: Decimal | None = None
 
+    # Demo staff accounts, created by app.db.seed. Passwords only from .env, stored hashed.
+    # No password set = that account is not created (never a default password).
+    mira_staff_email: str = "staff@ceylon-compass.example"
+    mira_staff_password: SecretStr | None = None
+    mira_approver_email: str = "approver@ceylon-compass.example"
+    mira_approver_password: SecretStr | None = None
+
+    # Our own media library (R8 "Ella photos"; the dataset has none)
+    mira_media_dir: Path = BACKEND_DIR / "media"
+
     # CORS origin of the frontend
     frontend_origin: str = "http://localhost:3000"
 
     @field_validator("mira_margin_day", "mira_margin_multiday", "gemini_api_key",
+                     "mira_staff_password", "mira_approver_password",
                      "langfuse_public_key", "langfuse_secret_key", mode="before")
     @classmethod
     def _empty_to_none(cls, v):

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" role="img" aria-labelledby="t">
+  <title id="t">Illustration: the Nine Arch Bridge in Ella with a blue train crossing</title>
+  <rect width="640" height="400" fill="#cfe8e4"/>
+  <path d="M0 210 Q160 120 320 190 T640 170 V400 H0Z" fill="#5f9e6e"/>
+  <path d="M0 260 Q200 200 400 250 T640 240 V400 H0Z" fill="#3f7d52"/>
+  <rect x="60" y="200" width="520" height="22" fill="#a86b4c"/>
+  <g fill="#a86b4c">
+    <rect x="60" y="222" width="520" height="120"/>
+  </g>
+  <g fill="#3f7d52">
+    <path d="M80 342 V262 a24 24 0 0 1 48 0 V342Z"/><path d="M136 342 V262 a24 24 0 0 1 48 0 V342Z"/>
+    <path d="M192 342 V262 a24 24 0 0 1 48 0 V342Z"/><path d="M248 342 V262 a24 24 0 0 1 48 0 V342Z"/>
+    <path d="M304 342 V262 a24 24 0 0 1 48 0 V342Z"/><path d="M360 342 V262 a24 24 0 0 1 48 0 V342Z"/>
+    <path d="M416 342 V262 a24 24 0 0 1 48 0 V342Z"/><path d="M472 342 V262 a24 24 0 0 1 48 0 V342Z"/>
+    <path d="M528 342 V262 a24 24 0 0 1 40 0 V342Z"/>
+  </g>
+  <g fill="#1f4e8c"><rect x="170" y="176" width="90" height="26" rx="4"/><rect x="264" y="176" width="90" height="26" rx="4"/><rect x="358" y="176" width="90" height="26" rx="4"/></g>
+  <g fill="#f2c94c"><rect x="180" y="182" width="70" height="6"/><rect x="274" y="182" width="70" height="6"/><rect x="368" y="182" width="70" height="6"/></g>
+</svg>

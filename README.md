@@ -68,8 +68,12 @@ backend/            FastAPI app (Python 3.12, pip), runs in Docker
   app/main.py       entry point: app, CORS, routers
   app/api/          HTTP routes (/api/v1/...)
   app/core/         settings (all configuration comes from env / .env)
-  app/db/           database engine and sessions
-  tests/            unit/ and api/ tests (pytest)
+  app/data_loader/  reads the dataset (read-only) and logs its data issues
+  app/pricing/      deterministic pricing engine: calculate_quote(), CLI python -m app.pricing
+  app/db/           tables, sessions, seed, repo (only what Mira creates is stored)
+  media/ella/       our own Ella illustrations (the dataset has no photos)
+  tests/            unit/, api/ and db/ tests (pytest; db/ needs the db container)
+evaluation/         eval cases (custom.jsonl); the runner comes later
 frontend/           Next.js 15 + TypeScript + Tailwind
 docker-compose.yml  db (PostgreSQL 16) + backend
 .env.example        every setting, with placeholders only
@@ -82,6 +86,11 @@ All settings are environment variables; see `.env.example` for the full list. Th
 - `MIRA_TODAY`: "today" for quotes and date checks. Defaults to `2026-11-19`, the date the evaluation cases assume.
 - `GEMINI_MODEL_FAST` / `GEMINI_MODEL_STRONG`: chat models. The defaults are `gemini-3.1-flash-lite` / `gemini-3.5-flash`, because Gemini 2.5 models are no longer available to new API keys.
 - `MIRA_MARGIN_DAY` / `MIRA_MARGIN_MULTIDAY`: optional margin overrides. If they're empty, the rate workbook's values are used.
+- `MIRA_STAFF_EMAIL` / `MIRA_STAFF_PASSWORD` and `MIRA_APPROVER_EMAIL` / `MIRA_APPROVER_PASSWORD`: the two demo staff accounts. They're created at startup (or with `python -m app.db.seed`) only if a password is set, stored hashed, and never overwritten afterwards.
+
+## Database
+
+Tables are created at startup if missing (8 tables: visitors, conversations, quotes, enquiries, bookings, users, content_items, media), and the demo users and media are seeded. Both steps are safe to repeat. Tours, content and rates are never stored in the database: they're read from the dataset.
 
 ## Why the backend runs in Docker
 

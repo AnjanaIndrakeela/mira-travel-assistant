@@ -26,3 +26,10 @@ def check_database(engine: Engine | None = None) -> bool:
         return True
     except Exception:
         return False
+
+
+def create_tables(engine: Engine | None = None) -> None:
+    """Create any missing tables (idempotent). Existing tables and data are left alone."""
+    from app.db import models  # noqa: F401  (registers the tables on Base.metadata)
+    from app.db.base import Base
+    Base.metadata.create_all(engine or get_engine())
