@@ -22,6 +22,11 @@ warnings.filterwarnings("ignore", message=".*uses fixed sampling defaults.*")
 ModelKind = Literal["fast", "strong", "backup"]
 THINKING: dict[str, str] = {"fast": "minimal", "strong": "low", "backup": "minimal"}
 MODEL_SETTING = {"fast": "gemini_model_fast", "strong": "gemini_model_strong", "backup": "gemini_model_backup"}
+# Per-call timeouts (seconds), also sent to Gemini as the request deadline. A healthy call takes
+# 1-6 s; a stuck one gives up early so app.llm.structured can switch to another model in time.
+# Gemini refuses deadlines under 10 s ("Minimum allowed deadline is 10s", checked 2026-11-24).
+MIN_DEADLINE_S = 10.0
+TIMEOUT_S: dict[str, float] = {"fast": 10.0, "strong": 15.0, "backup": 10.0}
 
 
 class LLMNotConfigured(RuntimeError):
@@ -41,7 +46,7 @@ def get_chat_model(kind: ModelKind = "fast") -> ChatGoogleGenerativeAI:
         google_api_key=s.gemini_api_key.get_secret_value(),
         temperature=0,
         max_retries=1,      # app.llm.structured does the backoff and the model switch
-        timeout=30,
+        timeout=TIMEOUT_S[kind],
         thinking_config={"thinking_level": THINKING[kind]},
     )
 

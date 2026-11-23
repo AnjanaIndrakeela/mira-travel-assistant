@@ -5,15 +5,22 @@
 3. If that fails too, return the caller's SAFE fallback (a handoff, never a quote),
    or raise StructuredOutputError when no fallback was given.
 
+Models are tried in this order: the requested one, then the quick backup
+(GEMINI_MODEL_BACKUP), then the other main model.
+
 Gemini errors are handled by kind:
-- overloaded (503 "high demand"), timeout or dropped connection: wait and retry the same
-  model (1 s, then 2 s), then switch to the other model (one retry after 4 s), then try
-  the backup model once (GEMINI_MODEL_BACKUP);
+- overloaded (503 "high demand") or a dropped connection: retry the same model once after
+  1 s, then switch (the second model gets one retry after 2 s);
+- timeout (our per-call timeout, or 504 DEADLINE_EXCEEDED): switch to the next model at once.
+  Each model has a short timeout (app.llm.client.TIMEOUT_S), so one stuck call can't use up
+  the whole turn;
 - quota (429): switch to the next model at once (quotas are per model);
 - anything else (no key, bad request): switch model, then the fallback.
-A model that fails rests (60 s after a quota error, 30 s when overloaded), so later calls skip
-it. Each call stops starting new retries after 25 s. A chat turn never crashes on an LLM
-error; at worst it gets the safe fallback.
+
+A model that fails rests (60 s after a quota error, 30 s when overloaded or timing out), so
+later calls skip it. Each call has a 25 s budget, and a model is only started if its full
+timeout still fits in what's left. A chat turn never crashes on an LLM error; at worst it
+gets the safe fallback.
 """
 
 from __future__ import annotations
@@ -26,18 +33,20 @@ from typing import Any, TypeVar
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel
 
-from app.llm.client import ModelKind, get_chat_model
+from app.llm.client import TIMEOUT_S, ModelKind, get_chat_model
 
 logger = logging.getLogger("mira.llm")
 T = TypeVar("T", bound=BaseModel)
 
-DROPPED_CONNECTION = {"RemoteProtocolError", "ConnectError", "ReadError", "ConnectionResetError",
-                      "ReadTimeout", "ConnectTimeout", "TimeoutException", "TimeoutError"}
-OVERLOADED_TEXT = ("503", "UNAVAILABLE", "high demand", "overloaded", "504", "DEADLINE_EXCEEDED",
-                   "500 INTERNAL")
+DROPPED_CONNECTION = {"RemoteProtocolError", "ConnectError", "ReadError", "ConnectionResetError"}
+TIMEOUT_NAMES = {"ReadTimeout", "ConnectTimeout", "WriteTimeout", "PoolTimeout", "TimeoutException",
+                 "TimeoutError", "DeadlineExceeded"}
+TIMEOUT_TEXT = ("504", "DEADLINE_EXCEEDED", "Deadline expired", "timed out")
+OVERLOADED_TEXT = ("503", "UNAVAILABLE", "high demand", "overloaded", "500 INTERNAL")
 QUOTA_TEXT = ("429", "RESOURCE_EXHAUSTED", "quota", "rate limit")
-# waits before each RETRY on the same model: first model 2 retries, second 1, backup none
-WAITS = ((1.0, 2.0), (4.0,), ())
+# waits before each RETRY on the same model: one retry on the first and second model, none on
+# the third. A busy model rarely recovers within seconds, and the backup is quick to try.
+WAITS = ((1.0,), (2.0,), ())
 OTHER: dict[str, ModelKind] = {"fast": "strong", "strong": "fast", "backup": "fast"}
 _sleep = time.sleep            # tests replace this so they don't wait
 
@@ -49,10 +58,12 @@ class StructuredOutputError(RuntimeError):
 
 
 def error_kind(exc: BaseException) -> str:
-    """'overloaded' (retry later), 'quota' (switch model now) or 'other'."""
+    """'overloaded' (retry later), 'timeout' or 'quota' (switch model now) or 'other'."""
     name, text = exc.__class__.__name__, str(exc)
     if "RateLimit" in name or any(t.lower() in text.lower() for t in QUOTA_TEXT):
         return "quota"
+    if name in TIMEOUT_NAMES or any(t.lower() in text.lower() for t in TIMEOUT_TEXT):
+        return "timeout"
     if name in DROPPED_CONNECTION or any(t.lower() in text.lower() for t in OVERLOADED_TEXT):
         return "overloaded"
     return "other"
@@ -70,7 +81,8 @@ def _models(model: Any, kind: ModelKind) -> list[Any]:
     Real models are created lazily, so a missing key is an error like any other."""
     if model is not None:
         return list(model) if isinstance(model, (list, tuple)) else [model]
-    chain = [_Lazy(kind), _Lazy(OTHER[kind]), _Lazy("backup")]
+    kinds = list(dict.fromkeys([kind, "backup", OTHER[kind]]))     # backup is quick: try it second
+    chain = [_Lazy(k) for k in kinds]
     now = _clock()
     ready = [c for c in chain if _resting_until.get(c.kind, 0) <= now]
     return ready or chain            # all resting: try them anyway rather than give up
@@ -78,8 +90,8 @@ def _models(model: Any, kind: ModelKind) -> list[Any]:
 
 # A model that just failed sits out for a while, so the next calls go straight to one that
 # works instead of waiting through the same errors again (real models only).
-REST_SECONDS = {"quota": 60.0, "overloaded": 30.0}
-BUDGET_SECONDS = 25.0          # per call: no new retry or model once this has passed
+REST_SECONDS = {"quota": 60.0, "overloaded": 30.0, "timeout": 30.0}
+BUDGET_SECONDS = 25.0          # per call: no retry or model is started that wouldn't fit in it
 _resting_until: dict[str, float] = {}
 _clock = time.monotonic
 
@@ -96,6 +108,10 @@ class _Lazy:
     def get(self):
         return get_chat_model(self.kind)
 
+    @property
+    def timeout(self) -> float:
+        return TIMEOUT_S[self.kind]
+
 
 def invoke_structured(schema: type[T], messages: Sequence[BaseMessage], *, kind: ModelKind = "fast",
                       fallback: T | None = None, model: Any = None, config: dict | None = None) -> T:
@@ -105,8 +121,10 @@ def invoke_structured(schema: type[T], messages: Sequence[BaseMessage], *, kind:
     repaired = False
     deadline = _clock() + BUDGET_SECONDS
     for i, candidate in enumerate(_models(model, kind)):
-        if i and _clock() > deadline:
-            break                     # out of time: a quick safe reply beats a long wait
+        # out of time: a quick safe reply beats a long wait. A real model must have room for
+        # its whole timeout; a test fake (no timeout) only needs the budget not to be over.
+        if i and _clock() + getattr(candidate, "timeout", 0.0) > deadline:
+            break
         waits = list(WAITS[min(i, len(WAITS) - 1)])
         try:
             m = candidate.get() if isinstance(candidate, _Lazy) else candidate
@@ -122,7 +140,8 @@ def invoke_structured(schema: type[T], messages: Sequence[BaseMessage], *, kind:
                 why = error_kind(exc)
                 logger.warning("structured call for %s failed (%s, model %d): %s",
                                schema.__name__, why, i + 1, exc.__class__.__name__)
-                if why == "overloaded" and waits and _clock() + waits[0] < deadline:
+                room = _clock() + (waits[0] if waits else 0) + getattr(candidate, "timeout", 0.0)
+                if why == "overloaded" and waits and room <= deadline:
                     _sleep(waits.pop(0))
                     continue
                 _rest(candidate, why)

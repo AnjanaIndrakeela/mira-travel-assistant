@@ -385,10 +385,10 @@ def test_assumed_tour_and_discount_are_mentioned_in_code_text(base):
 
 def test_fast_model_down_uses_the_strong_one_for_analysis(base):
     busy = RuntimeError("503 UNAVAILABLE")
-    fast = FakeModel(TurnAnalysis=[busy, busy, busy])
+    fast = FakeModel(TurnAnalysis=[busy, busy])
     strong = FakeModel(RouterDecision=[R("quote", "T01")],
                        TripDetails=[T(tour_mention="T01", adults=2, start_date=date(2027, 1, 10))])
     deps = Deps(today=TODAY, settings=base.settings, rates=base.rates, content=base.content,
                 brand=base.brand, tours=base.tours, fast_model=fast, strong_model=strong)
     out = turn(build_graph(deps), "T01 for 2 adults on 10 January 2027")
-    assert out["quote"]["price_usd"] == 315 and len(fast.calls) == 3
+    assert out["quote"]["price_usd"] == 315 and len(fast.calls) == 2     # one retry, then switch

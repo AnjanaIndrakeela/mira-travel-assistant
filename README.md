@@ -101,7 +101,13 @@ All settings are environment variables; see `.env.example` for the full list. Th
 
 - `MIRA_TODAY`: "today" for quotes and date checks. Defaults to `2026-11-19`, the date the evaluation cases assume.
 - `GEMINI_MODEL_FAST` / `GEMINI_MODEL_STRONG`: chat models. The defaults are `gemini-3.1-flash-lite` / `gemini-3.5-flash`, because Gemini 2.5 models are no longer available to new API keys.
-- `GEMINI_MODEL_BACKUP`: tried last when both are overloaded (503) or out of quota (429); default `gemini-3.5-flash-lite`. Each Gemini call retries with backoff (1 s, 2 s), then switches model. With every model down, Mira still replies with fixed wording or a handoff.
+- `GEMINI_MODEL_BACKUP`: a quick model, tried second when the first is overloaded (503), stuck (timeout or 504) or out of quota (429). The default is `gemini-3.5-flash-lite`.
+  - **Order:** the requested model, then the backup, then the other main model.
+  - **Overloaded:** retry the same model once, then switch.
+  - **Timeout or quota:** switch at once.
+  - **Timeouts:** each call times out after 10 s (15 s for the strong model). That's Gemini's minimum allowed deadline, so one stuck call can't use up the 25 s turn budget.
+  - **Rest:** a failing model is skipped for 30–60 s.
+  - **Everything down:** Mira still replies with fixed wording or a handoff.
 - `MIRA_MARGIN_DAY` / `MIRA_MARGIN_MULTIDAY`: optional margin overrides. If they're empty, the rate workbook's values are used.
 - `MIRA_STAFF_EMAIL` / `MIRA_STAFF_PASSWORD` and `MIRA_APPROVER_EMAIL` / `MIRA_APPROVER_PASSWORD`: the two demo staff accounts. They're created at startup (or with `python -m app.db.seed`) only if a password is set, stored hashed, and never overwritten afterwards.
 

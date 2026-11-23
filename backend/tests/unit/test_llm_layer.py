@@ -161,16 +161,16 @@ def waits(monkeypatch):
 
 def test_overloaded_model_is_retried_with_backoff(waits):
     busy = RuntimeError("503 UNAVAILABLE: high demand")
-    m = FakeModel(busy, busy, GOOD)
+    m = FakeModel(busy, GOOD)
     assert invoke_structured(RouterDecision, MSGS, model=m, fallback=SAFE).intent is Intent.QUOTE
-    assert len(m.calls) == 3 and waits == [1.0, 2.0]
+    assert len(m.calls) == 2 and waits == [1.0]
 
 
 def test_still_overloaded_switches_to_the_other_model(waits):
     busy = RuntimeError("503 UNAVAILABLE")
     first, second = FakeModel(busy, busy, busy), FakeModel(GOOD)
     assert invoke_structured(RouterDecision, MSGS, model=[first, second], fallback=SAFE).intent is Intent.QUOTE
-    assert (len(first.calls), len(second.calls)) == (3, 1)
+    assert (len(first.calls), len(second.calls)) == (2, 1)                # one retry, then switch
 
 
 def test_quota_switches_model_at_once(waits):
@@ -184,7 +184,7 @@ def test_both_models_down_gives_the_fallback(waits):
     busy = RuntimeError("503 UNAVAILABLE")
     first, second = FakeModel(busy, busy, busy), FakeModel(busy, busy)
     assert invoke_structured(RouterDecision, MSGS, model=[first, second], fallback=SAFE) is SAFE
-    assert waits == [1.0, 2.0, 4.0]                     # 4 retries in all, then the safe answer
+    assert waits == [1.0, 2.0]                          # one retry on each, then the safe answer
 
 
 def test_other_errors_are_not_retried_on_the_same_model(waits):
@@ -205,7 +205,10 @@ def test_no_key_gives_the_fallback_not_a_crash(monkeypatch):
 @pytest.mark.parametrize("exc,kind", [
     (RuntimeError("503 UNAVAILABLE"), "overloaded"), (RuntimeError("This model is experiencing high demand"),
                                                        "overloaded"),
-    (RuntimeError("429 RESOURCE_EXHAUSTED"), "quota"), (ValueError("400 INVALID_ARGUMENT"), "other")])
+    (RuntimeError("429 RESOURCE_EXHAUSTED"), "quota"), (ValueError("400 INVALID_ARGUMENT"), "other"),
+    (RuntimeError("504 DEADLINE_EXCEEDED. Deadline expired before operation could complete."), "timeout"),
+    (TimeoutError("timed out"), "timeout"), (type("ReadTimeout", (Exception,), {})("x"), "timeout"),
+    (type("RemoteProtocolError", (Exception,), {})("Server disconnected"), "overloaded")])
 def test_error_kinds(exc, kind):
     from app.llm.structured import error_kind
     assert error_kind(exc) == kind
@@ -334,11 +337,12 @@ def test_a_failing_model_rests_so_the_next_call_skips_it(monkeypatch, waits):
     monkeypatch.setattr(structured, "_clock", lambda: clock[0])
     monkeypatch.setattr(structured, "_resting_until", {})
     fakes = {"fast": FakeModel(RuntimeError("429 RESOURCE_EXHAUSTED")),
-             "strong": FakeModel(GOOD, GOOD, GOOD), "backup": FakeModel()}
+             "backup": FakeModel(GOOD, GOOD, GOOD), "strong": FakeModel()}
     monkeypatch.setattr(structured, "get_chat_model", lambda kind="fast": fakes[kind])
     assert invoke_structured(RouterDecision, MSGS, fallback=SAFE).intent is Intent.QUOTE
     assert invoke_structured(RouterDecision, MSGS, fallback=SAFE).intent is Intent.QUOTE
-    assert len(fakes["fast"].calls) == 1          # second call went straight to the strong model
+    assert len(fakes["fast"].calls) == 1          # second call went straight to the backup model
+    assert fakes["strong"].calls == []
     clock[0] += 61                                 # rest is over: fast is tried again
     fakes["fast"].outputs.append(GOOD)
     assert invoke_structured(RouterDecision, MSGS, fallback=SAFE).intent is Intent.QUOTE
@@ -370,3 +374,74 @@ def test_uuids_are_not_masked_as_phone_numbers(uuid_text):
 def test_phone_numbers_are_still_masked(phone):
     from app.guards.input_guard import mask_personal_data
     assert "[phone]" in mask_personal_data(f"Call me on {phone}")
+
+
+# ---- stuck calls: short timeouts, switch at once (Phase 11 follow-up) ----------------------
+
+def real_chain(monkeypatch, fakes, clock):
+    from app.llm import structured
+    monkeypatch.setattr(structured, "_clock", lambda: clock[0])
+    monkeypatch.setattr(structured, "_resting_until", {})
+    monkeypatch.setattr(structured, "get_chat_model", lambda kind="fast": fakes[kind])
+    return structured
+
+
+class Stuck(FakeModel):
+    """Fails after `seconds` on the fake clock, like a call that hits its timeout."""
+
+    def __init__(self, clock, seconds, *outputs):
+        super().__init__(*outputs)
+        self.clock, self.seconds = clock, seconds
+
+    def invoke(self, messages, config=None):
+        self.clock[0] += self.seconds
+        return super().invoke(messages, config)
+
+
+def test_order_is_requested_model_then_backup_then_the_other():
+    from app.llm.structured import _models
+    assert [c.kind for c in _models(None, "fast")] == ["fast", "backup", "strong"]
+    assert [c.kind for c in _models(None, "strong")] == ["strong", "backup", "fast"]
+    assert [c.kind for c in _models(None, "backup")] == ["backup", "fast"]
+
+
+def test_client_timeouts_fit_two_models_in_the_budget():
+    from app.llm.client import TIMEOUT_S
+    from app.llm.structured import BUDGET_SECONDS
+    assert TIMEOUT_S["fast"] + TIMEOUT_S["backup"] <= BUDGET_SECONDS
+    assert TIMEOUT_S["strong"] + TIMEOUT_S["backup"] <= BUDGET_SECONDS
+
+
+def test_a_timeout_switches_to_the_backup_at_once(monkeypatch, waits):
+    clock = [0.0]
+    fakes = {"fast": Stuck(clock, 10, RuntimeError("504 DEADLINE_EXCEEDED")),
+             "backup": FakeModel(GOOD), "strong": FakeModel()}
+    structured = real_chain(monkeypatch, fakes, clock)
+    assert invoke_structured(RouterDecision, MSGS, fallback=SAFE).intent is Intent.QUOTE
+    assert len(fakes["fast"].calls) == 1 and waits == []          # no retry on the stuck model
+    assert structured._resting_until["fast"] == 10 + structured.REST_SECONDS["timeout"]
+
+
+def test_a_model_whose_timeout_no_longer_fits_is_not_started(monkeypatch, waits):
+    clock = [0.0]
+    fakes = {"fast": Stuck(clock, 10, RuntimeError("504 DEADLINE_EXCEEDED")),
+             "backup": Stuck(clock, 10, RuntimeError("504 DEADLINE_EXCEEDED")), "strong": FakeModel(GOOD)}
+    real_chain(monkeypatch, fakes, clock)
+    # 20 s used; strong needs 15 s and only 5 s are left: the safe fallback, not a 35 s turn
+    assert invoke_structured(RouterDecision, MSGS, fallback=SAFE) is SAFE
+    assert fakes["strong"].calls == [] and clock[0] == 20
+
+
+def test_overloaded_retry_needs_room_for_the_whole_timeout(monkeypatch, waits):
+    clock = [0.0]
+    busy = RuntimeError("503 UNAVAILABLE")
+    fakes = {"fast": Stuck(clock, 14, busy, GOOD), "backup": FakeModel(GOOD), "strong": FakeModel()}
+    real_chain(monkeypatch, fakes, clock)
+    # after 14 s a retry (1 s wait + 10 s timeout) would end at 25 s: allowed, and it works
+    assert invoke_structured(RouterDecision, MSGS, fallback=SAFE).intent is Intent.QUOTE
+    assert waits == [1.0] and len(fakes["fast"].calls) == 2
+
+
+def test_timeouts_respect_geminis_minimum_deadline():
+    from app.llm.client import MIN_DEADLINE_S, TIMEOUT_S
+    assert all(t >= MIN_DEADLINE_S for t in TIMEOUT_S.values())   # under 10 s Gemini answers 400
