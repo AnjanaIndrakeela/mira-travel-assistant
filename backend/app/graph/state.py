@@ -40,6 +40,7 @@ class MiraState(TypedDict, total=False):
     # conversation
     messages: Annotated[list[AnyMessage], add_messages]
     thread_id: str
+    conversation_id: str | None      # the conversations row (UUID) this thread belongs to
     visitor_id: str | None
     is_returning: bool
     turn: int

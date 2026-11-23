@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     # Our own media library (R8 "Ella photos"; the dataset has none)
     mira_media_dir: Path = BACKEND_DIR / "media"
 
+    # Mock payments: 1 = every charge fails (to demo the friendly failure path). The test card
+    # 4000 0000 0000 0002 always fails too, whatever this says.
+    mock_payment_fail: bool = False
+
     # CORS origin of the frontend
     frontend_origin: str = "http://localhost:3000"
 

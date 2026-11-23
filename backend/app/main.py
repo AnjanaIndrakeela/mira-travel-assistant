@@ -7,8 +7,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.bookings import router as bookings_router
+from app.api.chat import router as chat_router
+from app.api.enquiries import router as enquiries_router
+from app.api.errors import install_error_handlers
 from app.api.health import router as health_router
+from app.api.quotes import router as quotes_router
+from app.api.tours import router as tours_router
 from app.core.config import get_settings
+from app.core.logging import install_log_masking
 from app.data_loader import get_dataset
 from app.data_loader.integrity import verify
 from app.db.seed import seed
@@ -16,6 +23,7 @@ from app.db.session import create_tables, get_sessionmaker
 from app.rag import get_retriever
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+install_log_masking()          # 9.10: emails, phones and card numbers never reach the logs
 logger = logging.getLogger("mira")
 settings = get_settings()
 
@@ -61,4 +69,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(health_router, prefix="/api/v1")
+install_error_handlers(app)
+for r in (health_router, chat_router, quotes_router, enquiries_router, tours_router, bookings_router):
+    app.include_router(r, prefix="/api/v1")

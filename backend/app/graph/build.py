@@ -4,7 +4,7 @@
                                   -> price -> (retrieve) .......... -> respond
                                   -> match_tours .................. -> respond
                                   -> retrieve ..................... -> respond
-    respond -> build_ui (output guard) -> persist -> END
+    respond -> persist (quote, enquiry, trace_id) -> build_ui (output guard) -> END
 
 The checkpointer keeps each conversation's state between turns, keyed by thread_id.
 """
@@ -46,9 +46,9 @@ def build_graph(deps: Deps | None = None, checkpointer=None):
     g.add_conditional_edges("price", _after_price, ["retrieve", "respond"])
     g.add_edge("match_tours", "respond")
     g.add_edge("retrieve", "respond")
-    g.add_edge("respond", "build_ui")
-    g.add_edge("build_ui", "persist")
-    g.add_edge("persist", END)
+    g.add_edge("respond", "persist")
+    g.add_edge("persist", "build_ui")
+    g.add_edge("build_ui", END)
     return g.compile(checkpointer=checkpointer if checkpointer is not None else InMemorySaver())
 
 

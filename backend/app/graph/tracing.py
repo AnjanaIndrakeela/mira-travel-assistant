@@ -55,11 +55,13 @@ def make_langfuse(settings: Settings):
 
 
 def run_turn(graph, thread_id: str, message: str, *, visitor_id: str | None = None,
+             conversation_id: str | None = None,
              langfuse=None, flush: bool = False) -> dict:
     """Run one chat turn through the graph, traced when Langfuse is available."""
     lf = langfuse if langfuse is not None else get_langfuse()
     config: dict = {"configurable": {"thread_id": thread_id}, "run_name": "mira-turn"}
     turn_input = {"messages": [HumanMessage(content=message)], "thread_id": thread_id,
+                  "conversation_id": conversation_id,
                   "visitor_id": visitor_id, "trace_id": None}
     with ExitStack() as stack:
         span = None

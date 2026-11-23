@@ -14,15 +14,19 @@ down or no key is set.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
+from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.graph import replies
+from app.graph.persist import persist_turn
 from app.graph.prompts import load_prompt, system_prompt
 from app.graph.state import PER_TURN_DEFAULTS, MiraState, Slot
 from app.graph.tours import CatalogTour, catalog, is_place, match_tour, suggest_tours, traveller_type
@@ -42,6 +46,14 @@ MAX_QUESTIONS = 3
 HISTORY = 8
 
 
+@contextmanager
+def db_scope():
+    """The app database: one transaction, committed if the block succeeds."""
+    from app.db.session import get_sessionmaker
+    with get_sessionmaker()() as session, session.begin():
+        yield session
+
+
 @dataclass
 class Deps:
     """Everything the nodes use. Tests pass fakes; None models mean the real Gemini models."""
@@ -55,6 +67,8 @@ class Deps:
     fast_model: Any = None
     strong_model: Any = None
     retriever: Any = None          # object with .retrieve(); None -> app.rag.get_retriever()
+    # () -> context manager yielding a Session that commits on exit; None = don't persist
+    session_scope: Callable[[], AbstractContextManager[Session]] | None = None
     extra: dict = field(default_factory=dict)
 
     @classmethod
@@ -62,6 +76,7 @@ class Deps:
         from app.data_loader import get_dataset
         settings = overrides.pop("settings", None) or get_settings()
         ds = get_dataset()
+        overrides.setdefault("session_scope", db_scope)
         return cls(today=overrides.pop("today", settings.mira_today), settings=settings,
                    rates=ds.rates, content=ds.content, brand=ds.brand,
                    tours=catalog(ds.content, ds.rates), **overrides)
@@ -427,7 +442,7 @@ class Nodes:
         flags = _flags(state, *(["output_guard"] if checked.changed else []))
         ui: list[dict] = []
         if q:
-            ui.append({"type": "quote_card", "quote": q})
+            ui.append({"type": "quote_card", "quote": q, "quote_id": state.get("quote_id")})
         if state.get("refusals") or state.get("unmatched_tour") or state["action"] == "handoff" \
                 or state.get("abstain_reason"):
             reason = ("no_price" if state.get("refusals") else "custom_request"
@@ -446,8 +461,17 @@ class Nodes:
 
     # 8.12 ------------------------------------------------------------------------------
     def persist(self, state: MiraState) -> dict:
-        """Stub until Phase 9 writes the quote, enquiry and trace ID to the database."""
+        """Save the quote, its enquiry and the trace ID (9.3-9.4). Runs before build_ui so the
+        quote card can carry the quote_id. A database problem is logged, never shown: the
+        traveller still gets the reply (the quote card then has no quote_id to book with)."""
         logger.info("turn %s thread=%s action=%s flags=%s quote=%s", state.get("turn"),
                     state.get("thread_id"), state["action"], state.get("flags"),
                     bool(state.get("quote")))
-        return {}
+        if self.d.session_scope is None:
+            return {}
+        try:
+            with self.d.session_scope() as session:
+                return persist_turn(session, state, self.d)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("persist failed: %s", exc.__class__.__name__)
+            return {"flags": _flags(state, "not_saved")}

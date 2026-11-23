@@ -104,6 +104,27 @@ All settings are environment variables; see `.env.example` for the full list. Th
 
 Tables are created at startup if missing (8 tables: visitors, conversations, quotes, enquiries, bookings, users, content_items, media), and the demo users and media are seeded. Both steps are safe to repeat. Tours, content and rates are never stored in the database: they're read from the dataset.
 
+## API
+
+All routes are under `/api/v1`; try them at <http://localhost:8000/docs>.
+
+| Route | What it does |
+|---|---|
+| `POST /chat` | One traveller turn: `{message, conversation_id?, visitor_id?}` → reply, UI components, sources, `quote_id`. Send the `conversation_id` back to continue. |
+| `GET /conversations/{id}` | The messages so far |
+| `GET /quotes/{id}` | A saved quote, public fields only (never cost or margin) |
+| `POST /quotes` | A direct quote from a form, through the same pricing engine |
+| `POST /enquiries` | "Send to the team" with optional contact details |
+| `GET /tours/{id}` | A published tour (drafts are 404); prices in the text are masked |
+| `POST /bookings` | Mock booking: re-checks the price, then charges the deposit with the mock provider |
+| `GET /health` | Status of the dataset, database, index, tracing and LLM |
+
+Every quote is saved with its public and staff fields and the Langfuse `trace_id`, plus a private enquiry for staff (`no_price` with reason flags when a specialist must confirm).
+
+**Mock payments.** The card `4242 4242 4242 4242` succeeds and `4000 0000 0000 0002` is declined. `MOCK_PAYMENT_FAIL=1` makes every charge fail. A failure returns a friendly message with next steps and saves a `booking_failed` enquiry. Card numbers are never stored or logged.
+
+**Errors** always look like `{"error": "not_found", "message": "..."}`, with no stack traces. Logs mask emails, phone numbers and card numbers.
+
 ## Conversation graph
 
 Each chat turn runs through a LangGraph `StateGraph` (`backend/app/graph/`). Gemini only classifies (guard), extracts trip details (discovery) and words the reply (respond). Code decides the route, prices with the pricing engine, picks tours and checks every reply with the output guard. Conversation state is kept per thread by a checkpointer.
@@ -122,9 +143,9 @@ graph TD;
 	price -.->|"tell me about it too"| retrieve;
 	match_tours --> respond;
 	retrieve --> respond;
-	respond --> build_ui;
-	build_ui --> persist;
-	persist --> __end__([end]);
+	respond --> persist;
+	persist --> build_ui;
+	build_ui --> __end__([end]);
 ```
 
 (Generated with `python -m app.graph.build`, labels added.)
