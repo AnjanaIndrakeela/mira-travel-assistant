@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from contextlib import ExitStack
 from functools import lru_cache
 from typing import Any
@@ -56,8 +57,10 @@ def make_langfuse(settings: Settings):
 
 def run_turn(graph, thread_id: str, message: str, *, visitor_id: str | None = None,
              conversation_id: str | None = None,
-             langfuse=None, flush: bool = False) -> dict:
-    """Run one chat turn through the graph, traced when Langfuse is available."""
+             langfuse=None, flush: bool = False,
+             on_step: Callable[[str], None] | None = None) -> dict:
+    """Run one chat turn through the graph, traced when Langfuse is available.
+    on_step(node_name) is called after each node finishes (used by the SSE stream)."""
     lf = langfuse if langfuse is not None else get_langfuse()
     config: dict = {"configurable": {"thread_id": thread_id}, "run_name": "mira-turn"}
     turn_input = {"messages": [HumanMessage(content=message)], "thread_id": thread_id,
@@ -79,7 +82,16 @@ def run_turn(graph, thread_id: str, message: str, *, visitor_id: str | None = No
             except Exception as exc:  # noqa: BLE001  (8.17: tracing problems never stop a reply)
                 logger.warning("tracing setup failed: %s", exc.__class__.__name__)
                 config.pop("callbacks", None)
-        result = graph.invoke(turn_input, config)
+        if on_step is None:
+            result = graph.invoke(turn_input, config)
+        else:   # same run, node by node, so a stream can show progress (11.1)
+            for update in graph.stream(turn_input, config, stream_mode="updates"):
+                for node in update:
+                    try:
+                        on_step(node)
+                    except Exception:  # noqa: BLE001  (a slow or gone client never breaks a turn)
+                        pass
+            result = graph.get_state({"configurable": {"thread_id": thread_id}}).values
         if span is not None:
             try:
                 span.update(output=result.get("response"),

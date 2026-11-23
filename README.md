@@ -87,8 +87,10 @@ backend/            FastAPI app (Python 3.12, pip), runs in Docker
 evaluation/         eval cases (custom.jsonl); the runner comes later
 frontend/           Next.js 15 + TypeScript + Tailwind v4 (chat UI on port 3010)
   scripts/sync-brand.mjs  brand tokens generated from the dataset's brand_pack.json (npm run brand)
-  src/lib/          brand.ts (generated), api.ts (backend client)
-  src/components/   Header, chat/ (Chat, Messages, Composer)
+  scripts/check-catalog.mjs  checks the Zod catalog against the backend's JSON Schema (npm run check:catalog)
+  src/lib/          brand.ts (generated), api.ts (backend client), catalog-schema.ts (Zod),
+                    catalog.schema.json (exported by the backend)
+  src/components/   Header, chat/ (Chat, Messages, Composer), catalog/ (the generative UI components)
 docker-compose.yml  db (PostgreSQL 16) + backend
 .env.example        every setting, with placeholders only
 ```
@@ -114,6 +116,7 @@ All routes are under `/api/v1`; try them at <http://localhost:8000/docs>.
 | Route | What it does |
 |---|---|
 | `POST /chat` | One traveller turn: `{message, conversation_id?, visitor_id?}` → reply, UI components, sources, `quote_id`. Send the `conversation_id` back to continue. |
+| `POST /chat/stream` | The same turn as an AG-UI-style event stream (Server-Sent Events), used by the chat UI |
 | `GET /conversations/{id}` | The messages so far |
 | `GET /quotes/{id}` | A saved quote, public fields only (never cost or margin) |
 | `POST /quotes` | A direct quote from a form, through the same pricing engine |
@@ -162,6 +165,26 @@ docker compose exec backend python -m app.graph.cli --debug
 Scripted turns: `python -m app.graph.cli --say "Hi" --say "2 adults from 3 May 2027"`.
 
 **Tracing.** With the Langfuse keys set, each turn is one trace, grouped by conversation as a session. It holds a span for every node and every Gemini call, plus the prompt version. Emails, phone numbers and card-like numbers are masked before anything is sent to Langfuse, and before the model sees the message. If Langfuse is unreachable or a key is wrong, chat keeps working without traces.
+
+## Generative UI
+
+Mira's replies can carry UI components, but only from a fixed catalog of eight: `traveller_picker`, `tour_card`, `itinerary_day`, `price_breakdown`, `booking_form`, `specialist_notice`, `source_list` and `welcome_back` (`backend/app/ui/catalog.py`).
+
+- **Code chooses, not the LLM.** The `build_ui` node picks components from the verified state (`app/ui/build.py`): a saved quote gives a tour card, a price card and a booking form; a refusal or an unanswered question gives a specialist notice; suggested tours give tour cards plus the top tour's day-by-day plan; a question about who is travelling gives the traveller picker.
+- **Prices never travel in a component.** `price_breakdown` and `booking_form` carry only a `quote_id`. The browser fetches the verified public quote from `GET /quotes/{id}`.
+- **Validated twice.** The server checks every payload against a Pydantic discriminated union with `extra="forbid"` (`app/guards/ui_validator.py`). It drops unknown types, bad or extra props, markup or script in text, money amounts in text, and price components that don't point at this turn's saved quote. Drops are logged and recorded in the trace (`ui_rejected`). The browser checks again with Zod (`frontend/src/lib/catalog-schema.ts`), and the registry renders only known types. Each component has an error boundary.
+- **One contract.** `python -m app.ui.export` writes the catalog's JSON Schema to `frontend/src/lib/catalog.schema.json`. A backend test fails if that file is stale, and `npm run check:catalog` fails if the Zod schemas drift from it.
+- **Booking and enquiry forms** post straight to `/bookings` and `/enquiries`. Contact details and card numbers never pass through the chat, the LLM or the traces.
+
+**Decision: AG-UI-style SSE instead of CopilotKit (step 11.1).** CopilotKit would need its own Node runtime between the browser and our Python graph, plus an adapter for our LangGraph state. With the submission deadline close, we used the plan's fallback instead: `POST /chat/stream` sends AG-UI event types over Server-Sent Events:
+
+1. `RUN_STARTED`
+2. `STEP_FINISHED` for each graph node, which drives the "what Mira is doing" status line
+3. `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT` and `TEXT_MESSAGE_END`
+4. one `CUSTOM` `ui_component` event per validated component
+5. `RUN_FINISHED`, carrying the full response, or `RUN_ERROR`
+
+The frontend reads the stream with `fetch`, so there is no extra dependency. The text arrives as one block, because the reply is generated as structured output and then checked by the output guard before anyone sees it.
 
 ## Why the backend runs in Docker
 

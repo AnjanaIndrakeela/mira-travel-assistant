@@ -7,6 +7,7 @@ fake models (no Gemini calls) and tracing is off.
 from __future__ import annotations
 
 import logging
+import json
 import uuid
 from contextlib import contextmanager
 from datetime import date
@@ -111,8 +112,9 @@ def test_chat_s02_saves_quote_and_enquiry(api, db):
     r = api.use(s02_model()).chat(S02)
     body = r.json()
     assert r.status_code == 200 and "USD 315" in body["message"]
-    card = next(c for c in body["ui"] if c["type"] == "quote_card")
-    assert card["quote"]["price_usd"] == 315 and card["quote_id"] == body["quote_id"]
+    assert [c["type"] for c in body["ui"]] == ["tour_card", "price_breakdown", "booking_form"]
+    assert body["ui"][1] == {"type": "price_breakdown", "quote_id": body["quote_id"]}   # no price in the payload
+    assert body["ui"][2]["quote_id"] == body["quote_id"] and body["ui"][0]["tour_id"] == "T01"
     quote = db.get(Quote, uuid.UUID(body["quote_id"]))
     assert quote.status == "ok" and quote.price_usd == 315 and quote.cost_usd is not None   # staff fields kept
     assert str(quote.conversation_id) == body["conversation_id"]
@@ -131,7 +133,9 @@ def test_same_conversation_keeps_context(api):
                       conversation_id=first["conversation_id"]).json()
     assert second["conversation_id"] == first["conversation_id"]
     assert second["visitor_id"] == first["visitor_id"]
-    assert next(c for c in second["ui"] if c["type"] == "quote_card")["quote"]["price_usd"] == 2965
+    card = next(c for c in second["ui"] if c["type"] == "price_breakdown")
+    assert card["quote_id"] == second["quote_id"]
+    assert api.client.get(f"/api/v1/quotes/{card['quote_id']}").json()["price_usd"] == 2965
     history = api.client.get(f"/api/v1/conversations/{first['conversation_id']}").json()["messages"]
     assert [m["role"] for m in history] == ["traveller", "mira", "traveller", "mira"]
 
@@ -337,3 +341,38 @@ def test_logs_mask_personal_data(caplog):
                                             "4111 1111 1111 1111")
     text = caplog.records[-1].getMessage()
     assert text == "contact [email] or [phone], card [card number]"
+
+
+# ---- 11.1 AG-UI-style event stream ---------------------------------------------------------
+
+def stream(api, message, **kw):
+    r = api.client.post("/api/v1/chat/stream", json={"message": message, **kw})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/event-stream")
+    return [json.loads(line[6:]) for line in r.text.splitlines() if line.startswith("data: ")]
+
+
+def test_stream_sends_steps_text_components_and_the_result(api, db):
+    events = stream(api.use(s02_model()), S02)
+    types = [e["type"] for e in events]
+    assert types[0] == "RUN_STARTED" and types[-1] == "RUN_FINISHED"
+    steps = [e["stepName"] for e in events if e["type"] == "STEP_FINISHED"]
+    assert steps[0] == "guard" and "price" in steps and steps[-1] == "build_ui"
+    text = next(e for e in events if e["type"] == "TEXT_MESSAGE_CONTENT")["delta"]
+    assert "USD 315" in text
+    ui = [e["value"]["type"] for e in events if e["type"] == "CUSTOM" and e["name"] == "ui_component"]
+    assert ui == ["tour_card", "price_breakdown", "booking_form"]
+    result = events[-1]["result"]
+    assert result["message"] == text and db.get(Quote, uuid.UUID(result["quote_id"])).price_usd == 315
+    assert events[0]["threadId"] == result["conversation_id"]
+
+
+def test_stream_failure_is_a_polite_handoff(api, monkeypatch):
+    api.use(FakeModel())
+
+    def boom(*a, **kw):
+        raise RuntimeError("graph exploded")
+    monkeypatch.setattr("app.api.chat.run_turn", boom)
+    events = stream(api, "Hello")
+    result = events[-1]["result"]
+    assert events[-1]["type"] == "RUN_FINISHED" and "travel specialists" in result["message"]
+    assert result["ui"][0]["type"] == "specialist_notice" and result["ui"][0]["enquiry_id"] == result["enquiry_id"]

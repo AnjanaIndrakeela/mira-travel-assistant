@@ -181,7 +181,8 @@ def test_quick_booker_s02_in_one_turn(base):
     out = turn(make(base, model), "How much is the Sigiriya and Minneriya day tour from Kandy for 2 adults "
                                   "on 10 January 2027?")
     assert out["action"] == "price" and out["quote"]["price_usd"] == 315
-    assert out["ui"][0]["type"] == "quote_card" and "USD 315" in out["response"]
+    assert out["ui"][0]["type"] == "tour_card" and "USD 315" in out["response"]
+    assert not any(c["type"] == "price_breakdown" for c in out["ui"])    # not saved: nothing to fetch
     assert out["traveller_type"] == "couple" and out["trip_type"] == "day"
     assert "cost" not in str(out["quote"]).lower() and "margin" not in str(out["quote"]).lower()
 
@@ -192,7 +193,8 @@ def test_s04_missing_rate_flags_and_gives_no_price(base):
     out = turn(make(base, model), "I'm travelling solo. Price for Treasures of Sri Lanka starting 10 April 2027?")
     assert out["quote"] is None and "no_price" in out["flags"]
     assert "USD" not in out["response"] and "specialist" in out["response"].lower()
-    assert {"type": "handoff_card", "reason": "no_price"} in out["ui"]
+    notice = next(c for c in out["ui"] if c["type"] == "specialist_notice")
+    assert notice["reason"] == "no_price" and "USD" not in notice["message"]
 
 
 def test_s03_family_over_two_turns(base):
@@ -255,8 +257,8 @@ def test_info_question_is_answered_with_citations(base):
     out = turn(make(base, model, retr), "What's the cancellation policy for the Galle Fort walking tour?")
     assert out["action"] == "retrieve" and out["retrieved"] and "[1]" in out["response"]
     assert out["citations"] == [1]                           # 7 doesn't exist: dropped
-    assert {"type": "sources", "items": [{"n": 1, "doc_id": "P02", "title": "Cancellation policy",
-                                          "section": "City tours"}]} in out["ui"]
+    assert {"type": "source_list", "items": [{"n": 1, "doc_id": "P02", "title": "Cancellation policy",
+                                              "section": "City tours"}]} in out["ui"]
     assert retr.queries[0][1] == "T04"
 
 

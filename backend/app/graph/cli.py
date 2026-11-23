@@ -18,17 +18,22 @@ from app.graph.tracing import get_langfuse, run_turn
 
 def show(result: dict, debug: bool) -> None:
     print(f"\nMira: {result['response']}")
+    if q := result.get("quote"):
+        print(f"  [quote] {q['tour_id']} {q['start_date']} price USD {q['price_usd']:,}, "
+              f"deposit USD {q['deposit_usd']:,}")
     for c in result.get("ui") or []:
-        if c["type"] == "quote_card":
-            q = c["quote"]
-            print(f"  [quote] {q['tour_id']} {q['start_date']} price USD {q['price_usd']:,}, "
-                  f"deposit USD {q['deposit_usd']:,}")
-        elif c["type"] == "tour_cards":
-            print("  [tours] " + ", ".join(f"{t['tour_id']} {t['name']}" for t in c["tours"]))
-        elif c["type"] == "sources":
+        if c["type"] == "tour_card":
+            print(f"  [tour_card] {c['tour_id']} {c['title']} ({c['duration']})")
+        elif c["type"] == "itinerary_day":
+            print(f"  [itinerary_day] {c['tour_id']} day {c['day']}: {c['title']}")
+        elif c["type"] == "source_list":
             print("  [sources] " + "; ".join(f"[{s['n']}] {s['title']} – {s['section']}" for s in c["items"]))
+        elif c["type"] == "specialist_notice":
+            print(f"  [specialist_notice] {c['reason']}: {c['message']}")
         else:
-            print(f"  [{c['type']}] {c.get('reason', '')}")
+            print(f"  [{c['type']}]")
+    for r in result.get("ui_rejected") or []:
+        print(f"  [ui rejected] {r}")
     if debug:
         keys = ("intent", "action", "flags", "input_flags", "selected_tour_id", "start_date", "party",
                 "traveller_type", "trip_type", "questions_asked", "abstain_reason", "trace_id")

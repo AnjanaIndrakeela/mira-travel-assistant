@@ -31,17 +31,18 @@ from app.graph.prompts import load_prompt, system_prompt
 from app.graph.state import PER_TURN_DEFAULTS, MiraState, Slot
 from app.graph.tours import CatalogTour, catalog, is_place, match_tour, suggest_tours, traveller_type
 from app.guards.input_guard import check_input
+from app.guards.ui_validator import validate_ui
 from app.guards.output_guard import amounts_in, check_output
 from app.llm.client import text_of
 from app.llm.schemas import GroundedAnswer, TripDetails
 from app.llm.structured import invoke_structured
 from app.llm.tasks import analyse_turn
 from app.pricing import QuoteRequest, calculate_quote
+from app.ui.build import choose_components
 
 logger = logging.getLogger("mira.graph")
 
 NO_TOOLS = {"injection", "out_of_scope", "greeting", "handoff"}   # no extraction, no quote
-UI_TYPES = {"quote_card", "tour_cards", "sources", "handoff_card", "quick_replies"}
 MAX_QUESTIONS = 3
 HISTORY = 8
 
@@ -440,23 +441,12 @@ class Nodes:
         verified = [q["price_usd"], q["deposit_usd"], q["balance_usd"]] if q else []
         checked = check_output(state.get("response") or "", verified)
         flags = _flags(state, *(["output_guard"] if checked.changed else []))
-        ui: list[dict] = []
-        if q:
-            ui.append({"type": "quote_card", "quote": q, "quote_id": state.get("quote_id")})
-        if state.get("refusals") or state.get("unmatched_tour") or state["action"] == "handoff" \
-                or state.get("abstain_reason"):
-            reason = ("no_price" if state.get("refusals") else "custom_request"
-                      if state.get("unmatched_tour") else "unanswered_question"
-                      if state.get("abstain_reason") else "handoff")
-            ui.append({"type": "handoff_card", "reason": reason})
-        if cards := state.get("tour_cards"):
-            ui.append({"type": "tour_cards", "tours": cards})
-        retrieved = state.get("retrieved") or []
-        if cited := [{"n": n, "doc_id": retrieved[n - 1]["doc_id"], "title": retrieved[n - 1]["title"],
-                      "section": retrieved[n - 1]["section"]} for n in state.get("citations") or []]:
-            ui.append({"type": "sources", "items": cited})
-        ui = [c for c in ui if c["type"] in UI_TYPES]            # catalog types only
-        return {"response": checked.text, "ui": ui, "flags": flags,
+        # code picks components from verified facts; the validator drops anything off-catalog
+        ui, rejected = validate_ui(choose_components(state, content=self.d.content, rates=self.d.rates),
+                                   quote_id=state.get("quote_id"))
+        if rejected:
+            flags = _flags({"flags": flags}, "ui_rejected")
+        return {"response": checked.text, "ui": ui, "ui_rejected": rejected, "flags": flags,
                 "messages": [AIMessage(content=checked.text)]}
 
     # 8.12 ------------------------------------------------------------------------------

@@ -107,3 +107,153 @@ export async function loadHistory(): Promise<HistoryMessage[]> {
     return [];
   }
 }
+
+// ---- Phase 11: the event stream, quotes, bookings, enquiries --------------------------------
+
+/** Shown from the moment a message is sent (the first step reads it). */
+export const FIRST_STEP = "Reading your message";
+
+/** What Mira is doing AFTER each graph step the stream reports as finished. */
+export const STEP_LABELS: Record<string, string> = {
+  guard: "Working out what you need",
+  discovery: "Working out what you need",
+  route: "Looking into it",
+  retrieve: "Checked our pages, writing a reply",
+  price: "Priced from our rate sheet, writing a reply",
+  match_tours: "Found tours that fit, writing a reply",
+  respond: "Almost there",
+  persist: "Almost there",
+  build_ui: "Almost there",
+};
+
+/**
+ * One turn over the AG-UI-style SSE stream (POST /chat/stream). `onStep` gets each finished
+ * graph node; the promise resolves with the same ChatResponse as POST /chat.
+ */
+export async function streamChat(message: string, onStep: (step: string) => void): Promise<ChatResponse> {
+  const payload: Record<string, string> = { message };
+  const conversation = ids.conversation();
+  const visitor = ids.visitor();
+  if (conversation) payload.conversation_id = conversation;
+  if (visitor) payload.visitor_id = visitor;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 90_000);
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch {
+    clearTimeout(timer);
+    throw new ApiError(OFFLINE, true);
+  }
+  if (!res.ok || !res.body) {
+    clearTimeout(timer);
+    let msg = BUSY;
+    try {
+      const body = await res.json();
+      if (typeof body?.message === "string") msg = body.message;
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(msg, res.status >= 500 || res.status === 429);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: ChatResponse | null = null;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let cut: number;
+      while ((cut = buffer.indexOf("\n\n")) >= 0) {
+        const frame = buffer.slice(0, cut);
+        buffer = buffer.slice(cut + 2);
+        const data = frame
+          .split("\n")
+          .filter((l) => l.startsWith("data: "))
+          .map((l) => l.slice(6))
+          .join("\n");
+        if (!data) continue;
+        let event: { type?: string; stepName?: string; result?: ChatResponse; message?: string };
+        try {
+          event = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        if (event.type === "STEP_FINISHED" && event.stepName) onStep(event.stepName);
+        else if (event.type === "RUN_FINISHED" && event.result) result = event.result;
+        else if (event.type === "RUN_ERROR") throw new ApiError(event.message || BUSY, true);
+      }
+    }
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(OFFLINE, true);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!result) throw new ApiError(BUSY, true);
+  write(KEYS.conversation, result.conversation_id);
+  write(KEYS.visitor, result.visitor_id);
+  return result;
+}
+
+/** The verified public quote: the only place a price on screen comes from. */
+export type PublicQuote = {
+  tour_id: string;
+  tour_name: string;
+  start_date: string;
+  end_date: string;
+  adults: number;
+  children: number;
+  infants: number;
+  price_usd: number;
+  deposit_usd: number;
+  balance_usd: number;
+  balance_due: string | null;
+  currency: "USD";
+};
+
+export function getQuote(quoteId: string): Promise<unknown> {
+  return call<unknown>(`/quotes/${encodeURIComponent(quoteId)}`, { method: "GET" }, 15_000);
+}
+
+export type Contact = { name: string; email: string; phone?: string };
+
+export type BookingResult = {
+  status: "confirmed" | "payment_failed" | "price_changed";
+  message: string;
+  booking_id: string | null;
+  payment_reference: string | null;
+  amount_charged_usd: number | null;
+  next_steps: ("retry" | "payment_link" | "enquiry_saved" | "new_quote")[];
+  enquiry_id: string | null;
+};
+
+/** Straight from the form to the API: never through the chat, the LLM or the traces. */
+export function book(quoteId: string, contact: Contact, cardNumber: string): Promise<BookingResult> {
+  return call<BookingResult>("/bookings", {
+    method: "POST",
+    body: JSON.stringify({ quote_id: quoteId, contact, card_number: cardNumber }),
+  });
+}
+
+export function sendEnquiry(input: {
+  kind: "custom" | "quote" | "no_price";
+  notes?: string;
+  quote_id?: string;
+  contact?: Contact;
+}): Promise<{ enquiry_id: string; message: string }> {
+  const conversation = ids.conversation();
+  return call("/enquiries", {
+    method: "POST",
+    body: JSON.stringify({ ...input, ...(conversation ? { conversation_id: conversation } : {}) }),
+  });
+}

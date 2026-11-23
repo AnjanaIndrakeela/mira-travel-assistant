@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Header } from "@/components/Header";
-import { ApiError, ids, loadHistory, sendChat } from "@/lib/api";
+import { ApiError, FIRST_STEP, ids, loadHistory, STEP_LABELS, streamChat } from "@/lib/api";
 import { brand } from "@/lib/brand";
 
 import { Composer } from "./Composer";
@@ -25,6 +25,7 @@ const nextId = () => `m${Date.now().toString(36)}${(counter++).toString(36)}`;
 export function Chat() {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [thinking, setThinking] = useState(false);
+  const [step, setStep] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -51,11 +52,10 @@ export function Chat() {
     if (!isRetry) setItems((prev) => [...prev, { id: nextId(), role: "traveller", text }]);
     setThinking(true);
     try {
-      const res = await sendChat(text);
-      setItems((prev) => [
-        ...prev,
-        { id: nextId(), role: "mira", text: res.message, sources: res.sources, ui: res.ui },
-      ]);
+      setStep(FIRST_STEP);
+      // AG-UI-style stream: progress per graph step, then the reply and its components
+      const res = await streamChat(text, (node) => setStep(STEP_LABELS[node] ?? null));
+      setItems((prev) => [...prev, { id: nextId(), role: "mira", text: res.message, ui: res.ui }]);
     } catch (err) {
       const e = err instanceof ApiError ? err : new ApiError("Something went wrong. Please try again.", true);
       setFailure({ message: e.message, retryable: e.retryable, text });
@@ -96,7 +96,7 @@ export function Chat() {
             </div>
           )}
 
-          <MessageList items={items} thinking={thinking} />
+          <MessageList items={items} thinking={thinking} step={step} send={(t) => ask(t)} />
 
           {failure && (
             <div

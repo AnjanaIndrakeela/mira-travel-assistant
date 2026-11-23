@@ -33,6 +33,7 @@ services:
       - /app/.venv                                       # hide the Windows venv from the container
       - ${MIRA_DATASET_HOST_DIR:-../ceylon-compass-dataset}:/data/dataset:ro   # read-only dataset
       - ./evaluation:/evaluation                         # eval cases and reports
+      - ./frontend/src/lib:/frontend/src/lib             # UI catalog JSON Schema export (11.5)
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"

@@ -84,7 +84,8 @@ class MiraState(TypedDict, total=False):
     enquiry_id: str | None
     flags: list[str]                  # staff flags for this turn (no_price, custom_request, injection...)
     response: str
-    ui: list[dict[str, Any]]
+    ui: list[dict[str, Any]]          # catalog components, validated (app.ui.catalog)
+    ui_rejected: list[dict[str, Any]] # what the UI validator dropped: {type, reason}
     citations: list[int]
     trace_id: str | None
 
@@ -96,5 +97,6 @@ PER_TURN_DEFAULTS: dict[str, Any] = {
     "action": "handoff", "missing": [],
     "retrieved": [], "abstain_reason": None, "tour_cards": [], "quote": None, "quote_request": None,
     "refusals": [], "quote_id": None, "enquiry_id": None, "flags": [], "response": "", "ui": [],
+    "ui_rejected": [],
     "citations": [],
 }   # trace_id is not reset: the caller sets it in each turn's input (None without tracing)
