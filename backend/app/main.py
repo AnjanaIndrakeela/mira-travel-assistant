@@ -63,7 +63,9 @@ app = FastAPI(title="Mira – Ceylon Compass Holidays", version="0.1.0", lifespa
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_origin],
+    # the frontend's origin, written either way (localhost / 127.0.0.1)
+    allow_origins=sorted({settings.frontend_origin,
+                          settings.frontend_origin.replace("://localhost", "://127.0.0.1")}),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

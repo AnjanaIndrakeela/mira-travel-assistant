@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     mock_payment_fail: bool = False
 
     # CORS origin of the frontend
-    frontend_origin: str = "http://localhost:3000"
+    frontend_origin: str = "http://localhost:3010"
 
     @field_validator("mira_margin_day", "mira_margin_multiday", "gemini_api_key",
                      "mira_staff_password", "mira_approver_password",

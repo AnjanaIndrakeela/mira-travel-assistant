@@ -34,7 +34,7 @@ docker compose up -d --build
 
 After editing `.env`, restart the backend so it reads the new values: `docker compose up -d backend`.
 
-**3. Frontend.** This starts on <http://localhost:3000>. If port 3000 is busy, Next.js picks the next free port and prints it.
+**3. Frontend.** This starts on <http://localhost:3010> (a fixed port, so it never clashes with other apps on 3000). The backend allows this origin through `FRONTEND_ORIGIN`; if you change the port, change both. The API address can be set with `NEXT_PUBLIC_API_URL` (default `http://localhost:8000/api/v1`).
 
 ```powershell
 cd frontend
@@ -85,7 +85,10 @@ backend/            FastAPI app (Python 3.12, pip), runs in Docker
   media/ella/       our own Ella illustrations (the dataset has no photos)
   tests/            unit/, api/, db/, rag/ and live/ tests (db/ needs the db container; rag/ needs GEMINI_API_KEY)
 evaluation/         eval cases (custom.jsonl); the runner comes later
-frontend/           Next.js 15 + TypeScript + Tailwind
+frontend/           Next.js 15 + TypeScript + Tailwind v4 (chat UI on port 3010)
+  scripts/sync-brand.mjs  brand tokens generated from the dataset's brand_pack.json (npm run brand)
+  src/lib/          brand.ts (generated), api.ts (backend client)
+  src/components/   Header, chat/ (Chat, Messages, Composer)
 docker-compose.yml  db (PostgreSQL 16) + backend
 .env.example        every setting, with placeholders only
 ```
