@@ -61,6 +61,12 @@ Open <http://localhost:8000/api/v1/health>. The API docs are at <http://localhos
 docker compose exec backend python -m pytest
 ```
 
+Tests that call the Gemini chat model are marked `live` and skipped by default. Run them by hand (needs `GEMINI_API_KEY`):
+
+```powershell
+docker compose exec backend python -m pytest -m live
+```
+
 ## Project layout
 
 ```
