@@ -33,8 +33,9 @@ DISCOUNT_REQUEST = re.compile(
 CARD = re.compile(r"\b(?:\d[ -]?){13,19}\b")
 PASSPORT = re.compile(r"\b[A-Z]{1,2}\d{6,8}\b")
 EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
-# Not a phone number: ISO dates ("2027-04-12") and date ranges, which travellers type often.
-PHONE = re.compile(r"(?<![\w-])(?!\d{4}-\d{1,2}-\d{1,2}(?!\d))\+?\d[\d ()-]{8,}\d")
+# Not a phone number: ISO dates ("2027-04-12") and date ranges, which travellers type often,
+# or the start of a UUID ("12345678-1234-4f67-...": the number must not run into letters).
+PHONE = re.compile(r"(?<![\w-])(?!\d{4}-\d{1,2}-\d{1,2}(?!\d))\+?\d[\d ()-]{8,}\d(?![\w-])")
 
 
 class InputCheck(BaseModel):

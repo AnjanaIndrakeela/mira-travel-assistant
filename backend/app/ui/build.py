@@ -22,11 +22,11 @@ ACCENTS: tuple[Accent, ...] = ("teal", "leaf", "sun", "sky", "coral")
 MAX_DAYS = 14
 
 NOTICE: dict[str, str] = {
-    "no_price": "A travel specialist needs to confirm this price, so I can't show one here. "
-                "We can pass your trip to our team.",
-    "custom_request": "We don't have that as a ready-made tour, but our team can plan it for you.",
-    "unanswered_question": "I don't have that in our information. Our team can answer it for you.",
-    "handoff": "A travel specialist can take it from here.",
+    "no_price": "Our team will check this trip and send you a confirmed price. "
+                "Leave your email and we'll be in touch.",
+    "custom_request": "Our team can plan a trip like this for you. Leave your email and we'll be in touch.",
+    "unanswered_question": "Our team can answer this for you. Leave your email and they'll reply.",
+    "handoff": "Leave your email and a travel specialist will get back to you.",
 }
 
 
@@ -109,9 +109,8 @@ def choose_components(state: dict, *, content: Any, rates: Any) -> list[dict]:
                        "fields": ["name", "email", "card_number"]})
 
     if reason := notice_reason(state):
-        refusals = list(dict.fromkeys(r["message"] for r in state.get("refusals") or []))
-        message = " ".join(refusals) if reason == "no_price" and refusals else NOTICE[reason]
-        ui.append({"type": "specialist_notice", "reason": reason, "message": _clip(message, 400),
+        # what happens next; the reason itself is already in the reply text
+        ui.append({"type": "specialist_notice", "reason": reason, "message": NOTICE[reason],
                    "enquiry_id": state.get("enquiry_id")})
 
     if cards := state.get("tour_cards"):

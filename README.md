@@ -176,6 +176,15 @@ Mira's replies can carry UI components, but only from a fixed catalog of eight: 
 - **One contract.** `python -m app.ui.export` writes the catalog's JSON Schema to `frontend/src/lib/catalog.schema.json`. A backend test fails if that file is stale, and `npm run check:catalog` fails if the Zod schemas drift from it.
 - **Booking and enquiry forms** post straight to `/bookings` and `/enquiries`. Contact details and card numbers never pass through the chat, the LLM or the traces.
 
+**Screenshots** (`docs/screenshots/`, taken at 1280 px and 375 px):
+
+| | Desktop (1280 px) | Phone (375 px) |
+|---|---|---|
+| Instant quote: tour card, price card (fetched by quote ID), booking form | ![Quote, desktop](docs/screenshots/desktop-quote.jpg) | ![Quote and booking form, phone](docs/screenshots/mobile-quote-booking.jpg) |
+| No price (S04): specialist notice, enquiry sent | ![No price, desktop](docs/screenshots/desktop-no-price.jpg) | ![No price, phone](docs/screenshots/mobile-no-price.jpg) |
+| Policy answer with source chips | ![Sources, desktop](docs/screenshots/desktop-sources.jpg) | ![Sources, phone](docs/screenshots/mobile-sources.jpg) |
+| Planner: suggested tour cards and day-by-day plan | ![Planner, desktop](docs/screenshots/desktop-planner.jpg) | |
+
 **Decision: AG-UI-style SSE instead of CopilotKit (step 11.1).** CopilotKit would need its own Node runtime between the browser and our Python graph, plus an adapter for our LangGraph state. With the submission deadline close, we used the plan's fallback instead: `POST /chat/stream` sends AG-UI event types over Server-Sent Events:
 
 1. `RUN_STARTED`

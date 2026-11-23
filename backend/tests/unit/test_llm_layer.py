@@ -357,3 +357,16 @@ def test_time_budget_stops_trying_more_models(monkeypatch, waits):
     first, second = Slow(RuntimeError("504 DEADLINE_EXCEEDED")), FakeModel(GOOD)
     assert invoke_structured(RouterDecision, MSGS, model=[first, second], fallback=SAFE) is SAFE
     assert len(first.calls) == 1 and second.calls == [] and waits == []
+
+
+@pytest.mark.parametrize("uuid_text", ["12345678-1234-4f67-8878-d30c5435fe6e",
+                                       "thread=70123456-9876-4abc-8878-d30c5435fe6e action=price"])
+def test_uuids_are_not_masked_as_phone_numbers(uuid_text):
+    from app.guards.input_guard import mask_personal_data
+    assert mask_personal_data(uuid_text) == uuid_text
+
+
+@pytest.mark.parametrize("phone", ["+94 77 123 4567", "077-123-4567", "(011) 234 5678", "+94771234567."])
+def test_phone_numbers_are_still_masked(phone):
+    from app.guards.input_guard import mask_personal_data
+    assert "[phone]" in mask_personal_data(f"Call me on {phone}")
