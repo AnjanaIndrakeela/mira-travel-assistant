@@ -106,16 +106,20 @@ class BookingForm(_Component):
         default_factory=lambda: ["name", "email", "card_number"], min_length=1)
 
 
-SpecialistReason = Literal["no_price", "custom_request", "unanswered_question", "handoff", "booking_failed"]
+SpecialistReason = Literal["no_price", "custom_request", "custom_plan", "unanswered_question", "handoff",
+                           "booking_failed"]
 
 
 class SpecialistNotice(_Component):
-    """No price or no answer: a specialist takes over. The message is code-written, never the LLM's."""
+    """No price or no answer: a specialist takes over. The message is code-written, never the LLM's.
+    custom_plan: offered under suggested tours, with `summary` (what the traveller asked for,
+    written by code from the trip details) pre-filled in the enquiry form."""
 
     type: Literal["specialist_notice"]
     reason: SpecialistReason
     message: T400
     enquiry_id: uuid.UUID | None = None
+    summary: T400 | None = None
 
 
 class SourceItem(_Component):

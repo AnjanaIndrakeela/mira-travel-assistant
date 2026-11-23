@@ -171,3 +171,20 @@ def test_draft_tour_never_becomes_a_card(ds):
 
 def test_one_accent_per_tour():
     assert accent_for("T01") == accent_for("T01") and accent_for("T01") != accent_for("T02")
+
+
+def test_planner_offers_a_custom_plan_with_a_summary(ds):
+    state = {"action": "match_tours", "tour_cards": [{"tour_id": "T13", "why": "fits"}],
+             "interests": ["beaches", "wildlife"], "duration_days": 10,
+             "party": {"adults": 2, "child_ages": []}, "start_date": "2027-03-05"}
+    ui, rejected = validate_ui(choose_components(state, content=ds.content, rates=ds.rates), quote_id=None)
+    notice = next(c for c in ui if c["type"] == "specialist_notice")
+    assert not rejected and notice["reason"] == "custom_plan"
+    assert notice["summary"] == "Interests: beaches, wildlife. About 10 days. 2 adults. From 2027-03-05."
+    assert not any(c["type"] in {"price_breakdown", "booking_form"} for c in ui)   # no price for a custom trip
+
+
+def test_unmatched_tour_gets_one_notice_not_two(ds):
+    state = {"action": "match_tours", "unmatched_tour": "Adam's Peak", "tour_cards": [{"tour_id": "T09", "why": "x"}]}
+    ui = choose_components(state, content=ds.content, rates=ds.rates)
+    assert [c["reason"] for c in ui if c["type"] == "specialist_notice"] == ["custom_request"]

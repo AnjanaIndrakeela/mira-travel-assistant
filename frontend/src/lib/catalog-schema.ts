@@ -72,9 +72,10 @@ export const BookingForm = z.strictObject({
 
 export const SpecialistNotice = z.strictObject({
   type: z.literal("specialist_notice"),
-  reason: z.enum(["no_price", "custom_request", "unanswered_question", "handoff", "booking_failed"]),
+  reason: z.enum(["no_price", "custom_request", "custom_plan", "unanswered_question", "handoff", "booking_failed"]),
   message: text(400),
   enquiry_id: z.uuid().nullable().default(null),
+  summary: text(400).nullable().default(null),
 });
 
 export const SourceList = z.strictObject({

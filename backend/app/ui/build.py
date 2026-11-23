@@ -16,7 +16,7 @@ import re
 from typing import Any
 
 from app.rag.chunker import mask_money
-from app.ui.catalog import Accent
+from app.ui.catalog import MONEY, UNSAFE, Accent
 
 ACCENTS: tuple[Accent, ...] = ("teal", "leaf", "sun", "sky", "coral")
 MAX_DAYS = 14
@@ -27,6 +27,8 @@ NOTICE: dict[str, str] = {
     "custom_request": "Our team can plan a trip like this for you. Leave your email and we'll be in touch.",
     "unanswered_question": "Our team can answer this for you. Leave your email and they'll reply.",
     "handoff": "Leave your email and a travel specialist will get back to you.",
+    "custom_plan": "None of these quite right? Our team can build a custom plan around your dates and "
+                   "interests. We'll send you a price once it's planned.",
 }
 
 
@@ -83,6 +85,29 @@ def itinerary_days(tour_id: str, *, content: Any) -> list[dict]:
              "source": src} for d in doc.itinerary[:MAX_DAYS]]
 
 
+def plan_summary(state: dict) -> str | None:
+    """What the traveller asked for, from the trip details, for the custom-plan enquiry."""
+    parts = []
+    if state.get("interests"):
+        parts.append("Interests: " + ", ".join(state["interests"]))
+    if state.get("destinations"):
+        parts.append("Places: " + ", ".join(state["destinations"]))
+    if state.get("duration_days"):
+        parts.append(f"About {state['duration_days']} days")
+    if party := state.get("party"):
+        kids = party.get("child_ages") or []
+        parts.append(f"{party['adults']} adult{'s' if party['adults'] != 1 else ''}"
+                     + (f", children aged {', '.join(map(str, kids))}" if kids else ""))
+    if state.get("start_date"):
+        parts.append(f"From {state['start_date']}")
+    elif state.get("travel_month"):
+        parts.append(f"Month {state['travel_month']}")
+    if not parts:
+        return None
+    text = _clip(". ".join(parts) + ".", 400)
+    return None if UNSAFE.search(text) or MONEY.search(text) else text      # never invalid
+
+
 def notice_reason(state: dict) -> str | None:
     if state.get("refusals"):
         return "no_price"
@@ -120,6 +145,9 @@ def choose_components(state: dict, *, content: Any, rates: Any) -> list[dict]:
         top = next((c["tour_id"] for c in cards if itinerary_days(c["tour_id"], content=content)), None)
         if top and action == "match_tours":
             ui.extend(itinerary_days(top, content=content))
+        if action == "match_tours" and not reason:     # 12.3: offer a custom plan, never a price
+            ui.append({"type": "specialist_notice", "reason": "custom_plan", "message": NOTICE["custom_plan"],
+                       "enquiry_id": None, "summary": plan_summary(state)})
     elif (action == "retrieve" and state.get("intent") == "tour_info" and not q
           and (tid := state.get("selected_tour_id"))):
         if card := tour_card(tid, content=content, rates=rates):

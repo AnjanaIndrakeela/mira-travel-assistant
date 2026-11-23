@@ -445,3 +445,13 @@ def test_overloaded_retry_needs_room_for_the_whole_timeout(monkeypatch, waits):
 def test_timeouts_respect_geminis_minimum_deadline():
     from app.llm.client import MIN_DEADLINE_S, TIMEOUT_S
     assert all(t >= MIN_DEADLINE_S for t in TIMEOUT_S.values())   # under 10 s Gemini answers 400
+
+
+def test_daily_quota_rests_the_model_as_long_as_gemini_says():
+    from app.llm.structured import MAX_REST_SECONDS, rest_seconds
+    daily = ("429 RESOURCE_EXHAUSTED. {'error': {'details': [{'@type': 'type.googleapis.com/google.rpc.RetryInfo', "
+             "'retryDelay': '42708s'}]}}")
+    assert rest_seconds("quota", daily) == MAX_REST_SECONDS           # 11 h, capped at 1 h
+    assert rest_seconds("quota", "... 'retryDelay': '20s' ...") == 60   # never shorter than the default
+    assert rest_seconds("quota", "429 RESOURCE_EXHAUSTED") == 60
+    assert rest_seconds("overloaded", daily) == 30

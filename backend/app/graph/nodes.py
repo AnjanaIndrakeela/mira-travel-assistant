@@ -29,6 +29,7 @@ from app.graph import replies
 from app.graph.persist import persist_turn
 from app.graph.prompts import load_prompt, system_prompt
 from app.graph.state import PER_TURN_DEFAULTS, MiraState, Slot
+from app.graph.quick_parse import quick_analysis
 from app.graph.tours import CatalogTour, catalog, is_place, match_tour, suggest_tours, traveller_type
 from app.guards.input_guard import check_input
 from app.guards.ui_validator import validate_ui
@@ -36,7 +37,7 @@ from app.guards.output_guard import amounts_in, check_output
 from app.llm.client import text_of
 from app.llm.schemas import GroundedAnswer, TripDetails
 from app.llm.structured import invoke_structured
-from app.llm.tasks import analyse_turn
+from app.llm.tasks import ANALYSIS_FALLBACK, analyse_turn
 from app.pricing import QuoteRequest, calculate_quote
 from app.ui.build import choose_components
 
@@ -126,6 +127,11 @@ class Nodes:
             return out
         history = [m for m in state["messages"] if m.id != last.id]
         r = analyse_turn(check.for_log, history, self.d.today, model=self._models("fast"), config=config)
+        if r is ANALYSIS_FALLBACK:     # every Gemini model failed: read it with plain rules instead
+            if quick := quick_analysis(check.for_log, self.d.tours, self.d.today):
+                r = quick
+                out["flags"] = ["llm_unavailable"]
+                logger.warning("analysis by rules (Gemini unavailable): intent=%s", quick.intent.value)
         out.update(intent="injection" if r.injection_suspected else r.intent.value,
                    needs_retrieval=r.needs_retrieval, tour_mention=r.tour_mention,
                    trip=r.trip.model_dump(mode="json"))

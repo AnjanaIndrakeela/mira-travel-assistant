@@ -26,6 +26,7 @@ gets the safe fallback.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Sequence
 from typing import Any, TypeVar
@@ -96,9 +97,22 @@ _resting_until: dict[str, float] = {}
 _clock = time.monotonic
 
 
-def _rest(candidate: Any, why: str) -> None:
+RETRY_DELAY = re.compile(r"retryDelay'?\"?\s*:\s*'?\"?(\d+)(?:\.\d+)?s")
+MAX_REST_SECONDS = 3600.0
+
+
+def rest_seconds(why: str, error: str = "") -> float:
+    """How long a failed model sits out. A quota error that says how long to wait (e.g. the
+    free tier's daily limit, "retryDelay: 42708s") is honoured, up to an hour."""
+    base = REST_SECONDS.get(why, 0.0)
+    if why == "quota" and (m := RETRY_DELAY.search(error)):
+        return min(max(base, float(m[1])), MAX_REST_SECONDS)
+    return base
+
+
+def _rest(candidate: Any, why: str, error: str = "") -> None:
     if isinstance(candidate, _Lazy) and why in REST_SECONDS:
-        _resting_until[candidate.kind] = _clock() + REST_SECONDS[why]
+        _resting_until[candidate.kind] = _clock() + rest_seconds(why, error)
 
 
 class _Lazy:
@@ -144,7 +158,7 @@ def invoke_structured(schema: type[T], messages: Sequence[BaseMessage], *, kind:
                 if why == "overloaded" and waits and room <= deadline:
                     _sleep(waits.pop(0))
                     continue
-                _rest(candidate, why)
+                _rest(candidate, why, str(exc))
                 break                                       # next model
             if isinstance(candidate, _Lazy):
                 _resting_until.pop(candidate.kind, None)       # it works again

@@ -217,7 +217,7 @@
     },
     "SpecialistNotice": {
       "additionalProperties": false,
-      "description": "No price or no answer: a specialist takes over. The message is code-written, never the LLM's.",
+      "description": "No price or no answer: a specialist takes over. The message is code-written, never the LLM's.\ncustom_plan: offered under suggested tours, with `summary` (what the traveller asked for,\nwritten by code from the trip details) pre-filled in the enquiry form.",
       "properties": {
         "enquiry_id": {
           "anyOf": [
@@ -242,12 +242,27 @@
           "enum": [
             "no_price",
             "custom_request",
+            "custom_plan",
             "unanswered_question",
             "handoff",
             "booking_failed"
           ],
           "title": "Reason",
           "type": "string"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "maxLength": 400,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary"
         },
         "type": {
           "const": "specialist_notice",
