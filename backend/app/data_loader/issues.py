@@ -16,7 +16,21 @@ class DataIssue(BaseModel, frozen=True):
     handling: str    # what the code does about it
 
 
-def issues_to_markdown(issues: list[DataIssue]) -> str:
+# Problems the loader can't see on its own but the pricing tests proved. Each has a test that
+# fails if the finding stops being true (tests/unit/test_pricing_sample_quotes.py).
+TEST_FINDINGS: tuple[DataIssue, ...] = (
+    DataIssue(
+        code="sample_quote_wrong",
+        location="rates/sample_quotes.md Q-1043",
+        detail="Q-1043 (T09, 2 adults + children 7 and 10, 12 Apr 2027) shows hotels LKR 146,000, "
+               "total cost LKR 603,000, price USD 2,680, deposit USD 670. 146,000 is the double rooms "
+               "only: the 2 child extra beds (READ ME rule 4, LKR 64,000 over 6 nights) are left out.",
+        handling="Not used as a reference. The engine follows the READ ME: hotels 210,000, cost "
+                 "667,000, price USD 2,965, deposit USD 742 (same as eval case S03)."),
+)
+
+
+def issues_to_markdown(issues: list[DataIssue], findings: tuple[DataIssue, ...] = TEST_FINDINGS) -> str:
     """Render issues as a Markdown table (used for docs/data-issues.md)."""
 
     def cell(text: str) -> str:
@@ -35,4 +49,9 @@ def issues_to_markdown(issues: list[DataIssue]) -> str:
     ]
     for n, i in enumerate(issues, 1):
         lines.append(f"| {n} | `{i.code}` | {cell(i.location)} | {cell(i.detail)} | {cell(i.handling)} |")
+    if findings:
+        lines += ["", "## Found by the pricing tests", "",
+                  "| # | Code | Location | Detail | Handling |", "|---|---|---|---|---|"]
+        for n, i in enumerate(findings, 1):
+            lines.append(f"| {n} | `{i.code}` | {cell(i.location)} | {cell(i.detail)} | {cell(i.handling)} |")
     return "\n".join(lines) + "\n"

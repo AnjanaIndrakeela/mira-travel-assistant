@@ -27,10 +27,12 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://mira:mira@db:5432/mira
       MIRA_DATASET_DIR: /data/dataset
+      MIRA_EVAL_DIR: /evaluation
     volumes:
       - ./backend:/app                                   # live code reload
       - /app/.venv                                       # hide the Windows venv from the container
       - ${MIRA_DATASET_HOST_DIR:-../ceylon-compass-dataset}:/data/dataset:ro   # read-only dataset
+      - ./evaluation:/evaluation                         # eval cases and reports
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
