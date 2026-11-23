@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" role="img" aria-labelledby="t">
+  <title id="t">Illustration: sunrise over Little Adam's Peak near Ella</title>
+  <rect width="640" height="400" fill="#f6d9b8"/>
+  <circle cx="470" cy="150" r="46" fill="#f2994a"/>
+  <path d="M0 300 L180 130 L300 250 L420 170 L640 320 V400 H0Z" fill="#6a8f6b"/>
+  <path d="M0 340 Q200 270 380 320 T640 330 V400 H0Z" fill="#3f6b4a"/>
+  <path d="M180 130 L200 150 L160 150Z" fill="#e8efe6"/>
+  <path d="M120 190 q20 -8 40 0 t40 0" stroke="#3f6b4a" stroke-width="4" fill="none"/>
+</svg>

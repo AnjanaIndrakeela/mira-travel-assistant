@@ -30,7 +30,7 @@ def test_health_reports_dataset_loaded_and_unchanged(client):
 def test_health_reports_every_check(client):
     body = client.get("/api/v1/health").json()
     assert set(body) == {"status", "today", "dataset_found", "dataset_integrity", "data_issues",
-                         "database", "tracing", "llm_configured"}
+                         "database", "tracing", "llm_configured", "index"}
     assert body["database"] in {"ok", "unavailable"}
 
 
