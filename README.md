@@ -71,8 +71,10 @@ backend/            FastAPI app (Python 3.12, pip), runs in Docker
   app/data_loader/  reads the dataset (read-only) and logs its data issues
   app/pricing/      deterministic pricing engine: calculate_quote(), CLI python -m app.pricing
   app/db/           tables, sessions, seed, repo (only what Mira creates is stored)
+  app/rag/          content retrieval: chunker, Gemini embeddings, FAISS + BM25, retriever
+  var/index/        saved FAISS index and query-vector cache (git-ignored, rebuilt on change)
   media/ella/       our own Ella illustrations (the dataset has no photos)
-  tests/            unit/, api/ and db/ tests (pytest; db/ needs the db container)
+  tests/            unit/, api/, db/ and rag/ tests (db/ needs the db container; rag/ needs GEMINI_API_KEY)
 evaluation/         eval cases (custom.jsonl); the runner comes later
 frontend/           Next.js 15 + TypeScript + Tailwind
 docker-compose.yml  db (PostgreSQL 16) + backend

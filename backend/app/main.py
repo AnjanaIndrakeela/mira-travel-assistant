@@ -13,6 +13,7 @@ from app.data_loader import get_dataset
 from app.data_loader.integrity import verify
 from app.db.seed import seed
 from app.db.session import create_tables, get_sessionmaker
+from app.rag import get_retriever
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("mira")
@@ -39,6 +40,14 @@ async def lifespan(app: FastAPI):
             logger.info("Seed: %s", seed(session).summary())
     except Exception as exc:  # noqa: BLE001
         logger.error("Database setup skipped: %s", exc.__class__.__name__)
+
+    # Content index (R4): loads from backend/var/index/, embeds only if the content changed.
+    # Without a Gemini key the app still starts; /health then reports index "unavailable".
+    try:
+        app.state.retriever = get_retriever()
+    except Exception as exc:  # noqa: BLE001
+        app.state.retriever = None
+        logger.warning("Content index unavailable: %s", exc)
     yield
 
 
