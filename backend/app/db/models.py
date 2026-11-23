@@ -11,8 +11,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, get_args
 
-from sqlalchemy import (CheckConstraint, Date, DateTime, ForeignKey, Integer, Numeric, String,
-                        Text)
+from sqlalchemy import (DDL, CheckConstraint, Date, DateTime, ForeignKey, Integer, Numeric, String,
+                        Text, event)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,7 +20,7 @@ from app.db.base import Base, utcnow
 
 QuoteStatus = Literal["ok", "needs_specialist"]
 EnquiryKind = Literal["quote", "no_price", "custom", "booking_failed"]
-EnquiryStatus = Literal["new", "in_progress", "closed"]
+EnquiryStatus = Literal["new", "contacted", "pending", "confirmed", "closed"]
 BookingStatus = Literal["confirmed", "payment_failed"]
 UserRole = Literal["staff", "approver"]
 ContentStatus = Literal["draft", "published", "rejected"]
@@ -173,6 +173,45 @@ class User(Base):
     created_at: Mapped[datetime] = _created()
 
 
+class StaffSession(Base):
+    """A signed-in staff browser. The cookie holds a random token; only its SHA-256 is stored,
+    so a database leak can't be replayed as a login. Logout deletes the row."""
+
+    __tablename__ = "staff_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"),
+                                               index=True, nullable=False)
+    created_at: Mapped[datetime] = _created()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    user: Mapped[User] = relationship()
+
+
+class EnquiryNote(Base):
+    """A staff note on an enquiry. Append-only: there is no edit or delete endpoint, and a
+    database trigger refuses UPDATE and DELETE, so the follow-up history can't be rewritten."""
+
+    __tablename__ = "enquiry_notes"
+
+    id: Mapped[uuid.UUID] = _id()
+    enquiry_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("enquiries.id", ondelete="RESTRICT"),
+                                                  index=True, nullable=False)
+    author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _created()
+
+    author: Mapped[User] = relationship()
+
+
+event.listen(EnquiryNote.__table__, "after_create", DDL("""
+CREATE OR REPLACE FUNCTION enquiry_notes_append_only() RETURNS trigger AS $$
+BEGIN RAISE EXCEPTION 'enquiry_notes is append-only'; END $$ LANGUAGE plpgsql;
+CREATE TRIGGER enquiry_notes_append_only BEFORE UPDATE OR DELETE ON enquiry_notes
+FOR EACH ROW EXECUTE FUNCTION enquiry_notes_append_only();
+""").execute_if(dialect="postgresql"))
+
+
 # ------------------------------------------------------------------ 5.8 content_items + media (R8)
 
 class ContentItem(Base):
@@ -211,4 +250,4 @@ class Media(Base):
 
 
 ALL_TABLES = ("visitors", "conversations", "quotes", "enquiries", "bookings", "users",
-              "content_items", "media")
+              "content_items", "media", "staff_sessions", "enquiry_notes")

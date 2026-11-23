@@ -113,7 +113,7 @@ All settings are environment variables; see `.env.example` for the full list. Th
 
 ## Database
 
-Tables are created at startup if missing (8 tables: visitors, conversations, quotes, enquiries, bookings, users, content_items, media), and the demo users and media are seeded. Both steps are safe to repeat. Tours, content and rates are never stored in the database: they're read from the dataset.
+Tables are created at startup if missing (10 tables: visitors, conversations, quotes, enquiries, bookings, users, staff_sessions, enquiry_notes, content_items, media), and the demo users and media are seeded. Both steps are safe to repeat. Tours, content and rates are never stored in the database: they're read from the dataset.
 
 ## API
 
@@ -130,10 +130,24 @@ All routes are under `/api/v1`; try them at <http://localhost:8000/docs>.
 | `GET /tours/{id}` | A published tour (drafts are 404); prices in the text are masked |
 | `POST /bookings` | Mock booking: re-checks the price, then charges the deposit with the mock provider |
 | `GET /health` | Status of the dataset, database, index, tracing and LLM |
+| `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` | Staff sign-in with a session cookie |
+| `GET /staff/enquiries` | Staff only: enquiries, flagged first; filter by `status` or `flagged` |
+| `GET /staff/enquiries/{id}` | Staff only: party, tour, price, deposit, **cost, GP%**, cost lines, flags, trace link, chat, notes |
+| `POST /staff/enquiries/{id}/notes` | Staff only: add a note (notes can never be edited or deleted) |
+| `PATCH /staff/enquiries/{id}/status` | Staff only: `new`, `contacted`, `pending`, `confirmed` or `closed` (each change is also noted) |
 
 Every quote is saved with its public and staff fields and the Langfuse `trace_id`, plus a private enquiry for staff (`no_price` with reason flags when a specialist must confirm).
 
 **Mock payments.** The card `4242 4242 4242 4242` succeeds and `4000 0000 0000 0002` is declined. `MOCK_PAYMENT_FAIL=1` makes every charge fail. A failure returns a friendly message with next steps and saves a `booking_failed` enquiry. Card numbers are never stored or logged.
+
+**Staff console** (<http://localhost:3010/staff>). Sign in with a demo account from `.env`. It is separate from the traveller chat: its own pages, header and layout, and it is hidden from search engines.
+
+- **Sessions.** The browser gets a random token in an HttpOnly, SameSite=Lax cookie that lasts 8 hours (`MIRA_SESSION_HOURS`). The database stores only the token's SHA-256, and signing out deletes it. Set `MIRA_COOKIE_SECURE=1` when serving over HTTPS.
+- **Sign-in protection.** A wrong password and an unknown email get the same answer and take the same time. After 5 failures in 15 minutes, sign-in is refused for a while.
+- **Roles.** Roles are checked in code by `require_role()`: no session gets 401, and the wrong role gets 403. Approvers can use everything staff can.
+- **Private data.** Cost, margin, GP% and contact details appear only in `/staff` responses. Tests check every other route.
+- **Notes.** Notes are append-only, and a database trigger refuses any UPDATE or DELETE on them.
+- **Trace links.** The link to Langfuse uses `LANGFUSE_PROJECT_ID` if it is set; otherwise the project is looked up once.
 
 **Errors** always look like `{"error": "not_found", "message": "..."}`, with no stack traces. Logs mask emails, phone numbers and card numbers.
 

@@ -17,7 +17,7 @@ def test_database_is_up(engine):
 
 def test_all_eight_tables_exist(engine):
     assert set(ALL_TABLES) <= set(inspect(engine).get_table_names())
-    assert len(ALL_TABLES) == 8
+    assert len(ALL_TABLES) == 10
 
 
 def test_create_tables_is_idempotent(engine):

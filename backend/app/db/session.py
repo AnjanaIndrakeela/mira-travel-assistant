@@ -32,4 +32,22 @@ def create_tables(engine: Engine | None = None) -> None:
     """Create any missing tables (idempotent). Existing tables and data are left alone."""
     from app.db import models  # noqa: F401  (registers the tables on Base.metadata)
     from app.db.base import Base
-    Base.metadata.create_all(engine or get_engine())
+    engine = engine or get_engine()
+    Base.metadata.create_all(engine)
+    upgrade_schema(engine)
+
+
+def upgrade_schema(engine: Engine) -> None:
+    """Small in-place changes create_all can't make (idempotent, safe on every start).
+
+    Phase 13: enquiry statuses became new / contacted / pending / confirmed / closed.
+    Rows saved as 'in_progress' before that become 'contacted'."""
+    from typing import get_args
+
+    from app.db.models import EnquiryStatus
+    allowed = ", ".join(f"'{v}'" for v in get_args(EnquiryStatus))
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE enquiries DROP CONSTRAINT IF EXISTS ck_enquiries_status_allowed"))
+        conn.execute(text("UPDATE enquiries SET status = 'contacted' WHERE status = 'in_progress'"))
+        conn.execute(text(f"ALTER TABLE enquiries ADD CONSTRAINT ck_enquiries_status_allowed "
+                          f"CHECK (status IN ({allowed}))"))

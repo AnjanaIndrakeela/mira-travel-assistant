@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     langfuse_host: str = "https://cloud.langfuse.com"
+    # For trace links on the staff page. Empty = looked up once from the Langfuse API.
+    langfuse_project_id: str | None = None
+
+    # Staff sessions: how long a sign-in lasts, and whether the cookie needs HTTPS
+    # (set MIRA_COOKIE_SECURE=1 when served over HTTPS; localhost is plain HTTP).
+    mira_session_hours: float = 8.0
+    mira_cookie_secure: bool = False
 
     # Pricing overrides. Empty = use the values from the workbook's Settings tab.
     # Used for the live "change a margin rule" demo without editing the workbook.
@@ -83,7 +90,8 @@ class Settings(BaseSettings):
 
     @field_validator("mira_margin_day", "mira_margin_multiday", "gemini_api_key",
                      "mira_staff_password", "mira_approver_password",
-                     "langfuse_public_key", "langfuse_secret_key", "gemini_model_backup", mode="before")
+                     "langfuse_public_key", "langfuse_secret_key", "langfuse_project_id", "gemini_model_backup",
+                     mode="before")
     @classmethod
     def _empty_to_none(cls, v):
         return None if v == "" else v

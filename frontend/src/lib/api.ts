@@ -17,7 +17,7 @@ export type ChatResponse = {
 };
 
 export class ApiError extends Error {
-  constructor(message: string, readonly retryable: boolean) {
+  constructor(message: string, readonly retryable: boolean, readonly status?: number) {
     super(message);
   }
 }
@@ -51,7 +51,7 @@ export const ids = {
 const OFFLINE = "I can't reach our server right now. Please check your connection and try again.";
 const BUSY = "Something went wrong on our side. Please try again in a moment.";
 
-async function call<T>(path: string, init: RequestInit, timeoutMs = 60_000): Promise<T> {
+export async function call<T>(path: string, init: RequestInit, timeoutMs = 60_000): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
@@ -77,7 +77,7 @@ async function call<T>(path: string, init: RequestInit, timeoutMs = 60_000): Pro
       body && typeof body === "object" && "message" in body && typeof body.message === "string"
         ? body.message
         : BUSY;
-    throw new ApiError(message, res.status >= 500 || res.status === 429);
+    throw new ApiError(message, res.status >= 500 || res.status === 429, res.status);
   }
   return body as T;
 }

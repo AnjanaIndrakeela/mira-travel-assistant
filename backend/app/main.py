@@ -13,6 +13,7 @@ from app.api.enquiries import router as enquiries_router
 from app.api.errors import install_error_handlers
 from app.api.health import router as health_router
 from app.api.quotes import router as quotes_router
+from app.api.staff import router as staff_router
 from app.api.tours import router as tours_router
 from app.core.config import get_settings
 from app.core.logging import install_log_masking
@@ -72,5 +73,6 @@ app.add_middleware(
 )
 
 install_error_handlers(app)
-for r in (health_router, chat_router, quotes_router, enquiries_router, tours_router, bookings_router):
+for r in (health_router, chat_router, quotes_router, enquiries_router, tours_router, bookings_router,
+          staff_router):
     app.include_router(r, prefix="/api/v1")
