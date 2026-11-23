@@ -7,6 +7,7 @@ temperature 0 so the same question gives the same answer; evals depend on it.
 
 from __future__ import annotations
 
+import warnings
 from functools import lru_cache
 from typing import Literal
 
@@ -15,8 +16,12 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.config import get_settings
 
-ModelKind = Literal["fast", "strong"]
-THINKING: dict[str, str] = {"fast": "minimal", "strong": "low"}
+# Some models (e.g. the backup) ignore temperature and warn on every call; that is expected.
+warnings.filterwarnings("ignore", message=".*uses fixed sampling defaults.*")
+
+ModelKind = Literal["fast", "strong", "backup"]
+THINKING: dict[str, str] = {"fast": "minimal", "strong": "low", "backup": "minimal"}
+MODEL_SETTING = {"fast": "gemini_model_fast", "strong": "gemini_model_strong", "backup": "gemini_model_backup"}
 
 
 class LLMNotConfigured(RuntimeError):
@@ -28,11 +33,14 @@ def get_chat_model(kind: ModelKind = "fast") -> ChatGoogleGenerativeAI:
     s = get_settings()
     if s.gemini_api_key is None:
         raise LLMNotConfigured("GEMINI_API_KEY is not set")
+    name = getattr(s, MODEL_SETTING[kind])
+    if not name:
+        raise LLMNotConfigured(f"no {kind} model is set")
     return ChatGoogleGenerativeAI(
-        model=s.gemini_model_fast if kind == "fast" else s.gemini_model_strong,
+        model=name,
         google_api_key=s.gemini_api_key.get_secret_value(),
         temperature=0,
-        max_retries=2,
+        max_retries=1,      # app.llm.structured does the backoff and the model switch
         timeout=30,
         thinking_config={"thinking_level": THINKING[kind]},
     )

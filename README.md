@@ -78,9 +78,12 @@ backend/            FastAPI app (Python 3.12, pip), runs in Docker
   app/pricing/      deterministic pricing engine: calculate_quote(), CLI python -m app.pricing
   app/db/           tables, sessions, seed, repo (only what Mira creates is stored)
   app/rag/          content retrieval: chunker, Gemini embeddings, FAISS + BM25, retriever
+  app/llm/          Gemini client, structured output, router and extraction tasks
+  app/guards/       input and output guards (injection, personal data, invented prices)
+  app/graph/        LangGraph workflow: state, nodes, tours, prompts, tracing, CLI
   var/index/        saved FAISS index and query-vector cache (git-ignored, rebuilt on change)
   media/ella/       our own Ella illustrations (the dataset has no photos)
-  tests/            unit/, api/, db/ and rag/ tests (db/ needs the db container; rag/ needs GEMINI_API_KEY)
+  tests/            unit/, api/, db/, rag/ and live/ tests (db/ needs the db container; rag/ needs GEMINI_API_KEY)
 evaluation/         eval cases (custom.jsonl); the runner comes later
 frontend/           Next.js 15 + TypeScript + Tailwind
 docker-compose.yml  db (PostgreSQL 16) + backend
@@ -93,12 +96,48 @@ All settings are environment variables; see `.env.example` for the full list. Th
 
 - `MIRA_TODAY`: "today" for quotes and date checks. Defaults to `2026-11-19`, the date the evaluation cases assume.
 - `GEMINI_MODEL_FAST` / `GEMINI_MODEL_STRONG`: chat models. The defaults are `gemini-3.1-flash-lite` / `gemini-3.5-flash`, because Gemini 2.5 models are no longer available to new API keys.
+- `GEMINI_MODEL_BACKUP`: tried last when both are overloaded (503) or out of quota (429); default `gemini-3.5-flash-lite`. Each Gemini call retries with backoff (1 s, 2 s), then switches model. With every model down, Mira still replies with fixed wording or a handoff.
 - `MIRA_MARGIN_DAY` / `MIRA_MARGIN_MULTIDAY`: optional margin overrides. If they're empty, the rate workbook's values are used.
 - `MIRA_STAFF_EMAIL` / `MIRA_STAFF_PASSWORD` and `MIRA_APPROVER_EMAIL` / `MIRA_APPROVER_PASSWORD`: the two demo staff accounts. They're created at startup (or with `python -m app.db.seed`) only if a password is set, stored hashed, and never overwritten afterwards.
 
 ## Database
 
 Tables are created at startup if missing (8 tables: visitors, conversations, quotes, enquiries, bookings, users, content_items, media), and the demo users and media are seeded. Both steps are safe to repeat. Tours, content and rates are never stored in the database: they're read from the dataset.
+
+## Conversation graph
+
+Each chat turn runs through a LangGraph `StateGraph` (`backend/app/graph/`). Gemini only classifies (guard), extracts trip details (discovery) and words the reply (respond). Code decides the route, prices with the pricing engine, picks tours and checks every reply with the output guard. Conversation state is kept per thread by a checkpointer.
+
+```mermaid
+graph TD;
+	__start__([start]) --> guard;
+	guard -.-> discovery;
+	guard -.->|injection, off-topic, greeting, handoff| route;
+	discovery --> route;
+	route -.->|ask, greet, decline| respond;
+	route -.-> price;
+	route -.-> match_tours;
+	route -.-> retrieve;
+	price -.-> respond;
+	price -.->|"tell me about it too"| retrieve;
+	match_tours --> respond;
+	retrieve --> respond;
+	respond --> build_ui;
+	build_ui --> persist;
+	persist --> __end__([end]);
+```
+
+(Generated with `python -m app.graph.build`, labels added.)
+
+Chat in the terminal:
+
+```powershell
+docker compose exec backend python -m app.graph.cli --debug
+```
+
+Scripted turns: `python -m app.graph.cli --say "Hi" --say "2 adults from 3 May 2027"`.
+
+**Tracing.** With the Langfuse keys set, each turn is one trace, grouped by conversation as a session. It holds a span for every node and every Gemini call, plus the prompt version. Emails, phone numbers and card-like numbers are masked before anything is sent to Langfuse, and before the model sees the message. If Langfuse is unreachable or a key is wrong, chat keeps working without traces.
 
 ## Why the backend runs in Docker
 

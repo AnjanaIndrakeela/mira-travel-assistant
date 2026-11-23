@@ -62,3 +62,14 @@ def test_injection_is_classified_and_never_a_quote():
 
 def test_out_of_scope():
     assert route_message("Can you write me a Python script to sort a list?").intent is Intent.OUT_OF_SCOPE
+
+
+def test_one_call_routes_and_extracts():
+    from app.llm.tasks import ANALYSIS_FALLBACK, analyse_turn
+    history = [H("We're 2 adults and 2 kids aged 7 and 10."),
+               AIMessage(content="Lovely. Which tour or dates are you thinking of?")]
+    a = analyse_turn("We'd like the Cultural Triangle package starting 12 April 2027. What's the price?",
+                     history, TODAY)
+    assert a is not ANALYSIS_FALLBACK and a.intent is Intent.QUOTE
+    assert "cultural triangle" in (a.tour_mention or "").lower()
+    assert (a.trip.adults, sorted(a.trip.child_ages), a.trip.start_date) == (2, [7, 10], date(2027, 4, 12))

@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # Gemini 2.5 models return 404 for new API keys, so the defaults are Gemini 3.
     gemini_model_fast: str = "gemini-3.1-flash-lite"
     gemini_model_strong: str = "gemini-3.5-flash"
+    # Tried last when both models above are overloaded (503) or out of quota (429): quotas
+    # are per model, so a third model keeps chat working. Empty = no backup.
+    gemini_model_backup: str | None = "gemini-3.5-flash-lite"
     # gemini-embedding-2: compared with gemini-embedding-001 on our content, both found the
     # right page for all test questions, but -2 separates relevant from irrelevant more clearly.
     gemini_embedding_model: str = "gemini-embedding-2"
@@ -76,7 +79,7 @@ class Settings(BaseSettings):
 
     @field_validator("mira_margin_day", "mira_margin_multiday", "gemini_api_key",
                      "mira_staff_password", "mira_approver_password",
-                     "langfuse_public_key", "langfuse_secret_key", mode="before")
+                     "langfuse_public_key", "langfuse_secret_key", "gemini_model_backup", mode="before")
     @classmethod
     def _empty_to_none(cls, v):
         return None if v == "" else v
