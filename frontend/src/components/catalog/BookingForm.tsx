@@ -7,6 +7,7 @@ import { BRANDS, brandInfo, type Brand, type CardField, checkCard, digitsOf, for
 import type { ComponentOf } from "@/lib/catalog-schema";
 
 import type { Actions } from "./registry";
+import { CardLogo } from "./CardLogo";
 import { Card, Chip, Field, Icon, Pill } from "./ui";
 
 type Props = ComponentOf<"booking_form"> & { actions: Actions };
@@ -159,8 +160,9 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
                     key={t.number}
                     type="button"
                     onClick={() => fillTestCard(t)}
-                    className="min-h-9 rounded-full border border-line bg-surface px-3 text-brand-xs font-medium shadow-sm hover:border-brand-orange focus-visible:outline-2 focus-visible:outline-brand-orange"
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-line bg-surface py-1 pl-1.5 pr-3 text-brand-xs font-medium shadow-sm hover:border-brand-orange focus-visible:outline-2 focus-visible:outline-brand-orange"
                   >
+                    <CardLogo brand={t.brand} className="h-4 w-6" />
                     {t.label}
                   </button>
                 ))}
@@ -172,7 +174,7 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
 
               <div role="radiogroup" aria-label="Card type" className="flex flex-col gap-1 text-brand-sm">
                 <span className="font-medium text-ink/80">Card type</span>
-                <div className="grid grid-cols-[1fr_1.4fr_1fr] gap-1.5 sm:grid-cols-3">
+                <div className="grid grid-cols-3 gap-1.5">
                   {BRANDS.map((b) => (
                     <button
                       key={b.id}
@@ -181,10 +183,18 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
                       aria-checked={brand === b.id}
                       aria-label={b.name}
                       onClick={() => { setBrand(b.id); setBrandTouched(true); setNumber((n) => formatNumber(n, b.id)); clear("brand"); clear("cvc"); }}
-                      className={`min-h-11 min-w-0 rounded-input border px-1 text-brand-xs font-semibold transition-all sm:px-2 sm:text-brand-sm ${brand === b.id ? "border-brand-orange bg-brand-orange/10 ring-4 ring-brand-orange/10" : "border-line bg-surface hover:border-ink/30"}`}
+                      className={`relative flex min-h-11 min-w-0 flex-col items-center justify-center gap-1 rounded-input border px-1 py-2 text-[11px] font-semibold transition-all sm:text-brand-xs ${brand === b.id ? "border-brand-orange bg-brand-orange/10 ring-4 ring-brand-orange/10" : "border-line bg-surface hover:border-ink/30"}`}
                     >
-                      <span className="sm:hidden">{b.short}</span>
-                      <span className="hidden sm:inline">{b.name}</span>
+                      {brand === b.id && (
+                        <span aria-hidden className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand-orange text-ink">
+                          <Icon name="check" className="h-2.5 w-2.5" />
+                        </span>
+                      )}
+                      <CardLogo brand={b.id} className="h-[26px] w-10 sm:h-8 sm:w-12" />
+                      <span className="max-w-full truncate">
+                        <span className="sm:hidden">{b.short}</span>
+                        <span className="hidden sm:inline">{b.name}</span>
+                      </span>
                     </button>
                   ))}
                 </div>
