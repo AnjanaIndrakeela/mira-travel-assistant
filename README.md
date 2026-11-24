@@ -67,6 +67,28 @@ Tests that call the Gemini chat model are marked `live` and skipped by default. 
 docker compose exec backend python -m pytest -m live
 ```
 
+## Evaluation
+
+The eval cases are the 17 starters (read from the dataset, unchanged) plus our own in `evaluation/test_cases/custom.jsonl`. The runner sends each case through the real graph and Gemini, in a fresh conversation, with `MIRA_TODAY=2026-11-19`:
+
+```powershell
+docker compose exec -w / backend python -m evaluation.runner
+```
+
+Add `--case S02` (repeatable), `--category pricing` or `--requirement R6` to run fewer cases. Add `--baseline` to also save `reports/baseline_<date>.md`.
+
+Each case is checked by code (`evaluation/assertions.py`):
+- the exact price and deposit, re-checked against the pricing engine;
+- no currency amount that isn't in a verified quote;
+- no price, and a saved staff flag, when a rate is missing or expired;
+- valid UI payloads;
+- no draft documents retrieved;
+- the expected sources cited;
+- no cost, margin or GP% shown;
+- at most 3 questions.
+
+The report goes to `evaluation/reports/evaluation_report.md`. It shows targets vs actual, the pass rate per requirement and per check, and dataset integrity. Each failing case is listed with its replies and Langfuse trace links. Quotes and enquiries from a run are saved under a fixed "eval" visitor.
+
 ## Project layout
 
 ```

@@ -41,7 +41,8 @@ def test_case_shape():
     for c in CASES:
         assert set(c) >= {"id", "category", "requirement", "turns", "expected"}, c["id"]
         assert c["turns"] and all(isinstance(t, str) and t for t in c["turns"]), c["id"]
-        assert c["expected"]["type"] in {"quote", "quote_sequence", "flag_no_price", "behaviour"}, c["id"]
+        assert c["expected"]["type"] in {"quote", "quote_sequence", "flag_no_price", "behaviour",
+                                         "custom_enquiry"}, c["id"]
 
 
 def test_requirement_counts():
