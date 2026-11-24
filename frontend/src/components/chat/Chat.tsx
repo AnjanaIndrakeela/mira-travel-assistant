@@ -88,12 +88,16 @@ export function Chat() {
     }
   }, []);
 
+  // "New chat": a clean thread. The server starts a new conversation with the next message.
+  // (The "welcome back" with the last trip is for opening the site, not for a new chat.)
   function startOver() {
     ids.startOver();
     setItems([]);
     setFailure(null);
     setReturning(false);
-    void welcomeBack();
+    setStep(null);
+    setNode(null);
+    window.scrollTo({ top: 0 });
   }
 
   // "Start fresh": forget the visitor too, so the party and last trip aren't reused.
@@ -108,7 +112,7 @@ export function Chat() {
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <Header onStartOver={startOver} canStartOver={items.length > 0 && !thinking} />
+      <Header onStartOver={startOver} showStartOver={items.length > 0 || thinking} canStartOver={!thinking} />
 
       <main className="mx-auto grid w-full max-w-3xl flex-1 grid-cols-1 items-start gap-8 px-4 pb-4 pt-5 lg:max-w-6xl lg:grid-cols-[minmax(0,1fr)_18rem] 2xl:max-w-7xl 2xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="flex min-w-0 flex-1 flex-col gap-4">
