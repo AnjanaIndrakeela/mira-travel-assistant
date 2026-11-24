@@ -1,6 +1,6 @@
 """The fixed catalog of UI components Mira may show (plan §7.4, step 11.2).
 
-The agent can only CHOOSE from these eight types; it can never invent UI. Every payload is a
+The agent can only CHOOSE from these nine types; it can never invent UI. Every payload is a
 Pydantic model with extra="forbid", joined in one discriminated union on `type`, so:
 - an unknown type is a validation error;
 - an unknown or extra prop (for example a `price` on price_breakdown) is a validation error;
@@ -46,6 +46,9 @@ T40, T80, T120, T160, T200, T400, T1200 = (_text(n) for n in (40, 80, 120, 160, 
 TourId = Annotated[str, Field(pattern=r"^T\d{2}$")]
 DocId = Annotated[str, Field(pattern=r"^[A-Z]{1,3}\d{2,3}$")]
 Accent = Literal["teal", "leaf", "sun", "sky", "coral"]
+# only files our own media route serves (registered in the media table)
+MediaSrc = Annotated[str, Field(pattern=r"^/api/v1/media/[a-z0-9-]+/[a-z0-9][a-z0-9.-]*\.(?:jpg|jpeg|png|svg|webp)$")]
+CommonsPage = Annotated[str, Field(pattern=r"^https://commons\.wikimedia\.org/wiki/File:[^\s<>\"']+$", max_length=300)]
 
 
 class _Component(BaseModel):
@@ -55,6 +58,16 @@ class _Component(BaseModel):
 class SourceRef(_Component):
     doc_id: DocId
     title: T120
+
+
+class Image(_Component):
+    """A picture from our media library. Open-licence photos carry the credit the licence asks for."""
+
+    src: MediaSrc
+    alt: T200
+    credit: T120 | None = None
+    licence: T40 | None = None
+    source: CommonsPage | None = None
 
 
 class TravellerPicker(_Component):
@@ -77,6 +90,7 @@ class TourCard(_Component):
     accent: Accent
     bookable: bool = Field(description="Mira can price it instantly")
     source: SourceRef
+    images: list[Image] = Field(default_factory=list, max_length=3)
 
 
 class ItineraryDay(_Component):
@@ -90,6 +104,7 @@ class ItineraryDay(_Component):
     meals: T80 | None = None
     stay: T160 | None = None
     source: SourceRef
+    image: Image | None = None
 
 
 class PriceBreakdown(_Component):
@@ -102,8 +117,9 @@ class PriceBreakdown(_Component):
 class BookingForm(_Component):
     type: Literal["booking_form"]
     quote_id: uuid.UUID
-    fields: list[Literal["name", "email", "phone", "card_number"]] = Field(
-        default_factory=lambda: ["name", "email", "card_number"], min_length=1)
+    fields: list[Literal["name", "email", "phone", "card"]] = Field(
+        default_factory=lambda: ["name", "email", "phone", "card"], min_length=1,
+        description="card = the full mock card form: holder, type, number, expiry, security code")
 
 
 SpecialistReason = Literal["no_price", "custom_request", "custom_plan", "unanswered_question", "handoff",
@@ -134,6 +150,14 @@ class SourceList(_Component):
     items: list[SourceItem] = Field(min_length=1, max_length=8)
 
 
+class PhotoGallery(_Component):
+    """Pictures of the places a planned or requested trip visits (chosen by code, never the LLM)."""
+
+    type: Literal["photo_gallery"]
+    title: T120
+    images: list[Image] = Field(min_length=1, max_length=6)
+
+
 class WelcomeBack(_Component):
     """R2: greeting for a returning visitor; the last quote is re-priced, shown by quote_id."""
 
@@ -144,11 +168,11 @@ class WelcomeBack(_Component):
 
 UIComponent = Annotated[
     Union[TravellerPicker, TourCard, ItineraryDay, PriceBreakdown, BookingForm, SpecialistNotice,
-          SourceList, WelcomeBack],
+          SourceList, WelcomeBack, PhotoGallery],
     Field(discriminator="type"),
 ]
 COMPONENT_TYPES = ("traveller_picker", "tour_card", "itinerary_day", "price_breakdown", "booking_form",
-                   "specialist_notice", "source_list", "welcome_back")
+                   "specialist_notice", "source_list", "welcome_back", "photo_gallery")
 ADAPTER: TypeAdapter[UIComponent] = TypeAdapter(UIComponent)
 
 

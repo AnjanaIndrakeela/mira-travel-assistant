@@ -15,7 +15,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from evaluation.cases import REQUIREMENT_ORDER
+from evaluation.cases import COVERAGE_TAGS, REQUIREMENT_ORDER
 
 REPORTS = Path(__file__).resolve().parent / "reports"
 SRI_LANKA = timezone(timedelta(hours=5, minutes=30))
@@ -77,7 +77,9 @@ def build_markdown(results: list[dict], *, started: float, env: dict, title: str
     n, passed = len(results), sum(r["passed"] for r in results)
     turns = [t for r in results for t in r["run"].turns]
     fallback = sum(t.llm_unavailable for t in turns)
-    behaviour = [r for r in results if r["case"].kind == "behaviour"]
+    judged = [r["run"].judge for r in results if r["run"].judge]
+    j_ok = sum(1 for j in judged if j.get("passed") is True)
+    j_na = sum(1 for j in judged if j.get("passed") is None)
     when = datetime.fromtimestamp(started, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     out = [f"# {title}", "",
            f"Run {when} · `MIRA_TODAY={env['mira_today']}` · models `{env['model_fast']}` (fast), "
@@ -89,9 +91,9 @@ def build_markdown(results: list[dict], *, started: float, env: dict, title: str
            f"- **Dataset integrity:** {'OK' if env['integrity_ok'] else 'CHANGED'}. {env['integrity']}",
            f"- **Gemini fallbacks:** {fallback} of {len(turns)} turns were read by the code rules because every "
            "Gemini model failed (quota, overload or timeout). Those turns still count.",
-           f"- **Behaviour cases ({len(behaviour)}):** checked by code only in this run (no invented amounts, "
-           "valid UI, no leaks, grounding where the case lists sources). The LLM judge for their wording "
-           "comes in Phase 15.",
+           f"- **LLM judge:** {len(judged)} cases have a behaviour rubric; the judge passed {j_ok}, failed "
+           f"{len(judged) - j_ok - j_na}" + (f", and was unavailable for {j_na} (not counted)" if j_na else "")
+           + ". Code checks decide prices, flags and leaks; the judge grades wording only.",
            "", "## Targets vs actual", "", "| Measure | Target | Actual | |", "|---|---|---|---|"]
     out += [f"| {m} | {t} | {a} | {'✅' if ok else '❌'} |" for m, t, a, ok in _targets(results)]
 
@@ -104,6 +106,12 @@ def build_markdown(results: list[dict], *, started: float, env: dict, title: str
         ok = sum(r["passed"] for r in rs)
         out.append(f"| {req} | {len(rs)} | {ok} | {_pct(ok, len(rs))} |")
 
+    out += ["", "## Coverage", "", "| Tag | Cases | Passed |", "|---|---|---|"]
+    for tag in COVERAGE_TAGS:
+        rs = [r for r in results if tag in r["case"].all_tags]
+        out.append(f"| {tag} | {len(rs)} | {sum(r['passed'] for r in rs)} |" + ("" if rs else " ❌ no case"))
+
+    out += _calibration_section()
     out += ["", "## Pass rate per check", "", "| Check | Applies to | Passed | Rate |", "|---|---|---|---|"]
     by_check = defaultdict(list)
     for r in results:
@@ -144,10 +152,27 @@ def build_markdown(results: list[dict], *, started: float, env: dict, title: str
     return "\n".join(out)
 
 
+def _calibration_section() -> list[str]:
+    from evaluation.judge import CALIBRATION
+    if not CALIBRATION.exists():
+        return ["", "## Judge calibration", "", "Not run yet: `python -m evaluation.judge --calibrate`."]
+    c = json.loads(CALIBRATION.read_text(encoding="utf-8"))
+    out = ["", "## Judge calibration", "",
+           f"The judge agreed with the hand labels on **{c['agree']}/{c['judged']} answers "
+           f"({c['agreement_pct']}%)** (labels in `test_cases/human_labels.jsonl`, labelled by: "
+           f"{', '.join(c['labeller'])})."]
+    diffs = [r for r in c["rows"] if r["agree"] is False]
+    if diffs:
+        out += ["", "| Label | Human | Judge | Judge's reason |", "|---|---|---|---|"]
+        out += [f"| {r['id']} | {r['human']} | {r['judge']} | {_cell(r['reason'], 220)} |" for r in diffs]
+    return out
+
+
 def build_json(results: list[dict], *, started: float, env: dict) -> dict:
     return {"started": started, "environment": env,
             "summary": {"cases": len(results), "passed": sum(r["passed"] for r in results)},
             "targets": [{"measure": m, "target": t, "actual": a, "met": ok} for m, t, a, ok in _targets(results)],
+            "coverage": {tag: [r["case"].id for r in results if tag in r["case"].all_tags] for tag in COVERAGE_TAGS},
             "cases": [{"id": r["case"].id, "requirement": r["case"].requirement, "type": r["case"].kind,
                        "passed": r["passed"],
                        "checks": [{"name": c.name, "passed": c.passed, "detail": c.detail} for c in r["checks"]],

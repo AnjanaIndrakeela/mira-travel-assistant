@@ -138,6 +138,8 @@ def test_same_conversation_keeps_context(api):
     assert api.client.get(f"/api/v1/quotes/{card['quote_id']}").json()["price_usd"] == 2965
     history = api.client.get(f"/api/v1/conversations/{first['conversation_id']}").json()["messages"]
     assert [m["role"] for m in history] == ["traveller", "mira", "traveller", "mira"]
+    # each reply comes back with its own cards, so a reloaded chat looks the same
+    assert history[3]["ui"] == second["ui"] and history[0]["ui"] == history[2]["ui"] == []
 
 
 def test_s04_saves_a_flagged_no_price_enquiry(api, db):
@@ -157,6 +159,68 @@ def test_unknown_tour_saves_a_custom_enquiry(api, db):
     body = api.chat("Do you do an Adam's Peak sunrise climb?").json()
     enquiry = db.get(Enquiry, uuid.UUID(body["enquiry_id"]))
     assert enquiry.kind == "custom" and "custom_request" in enquiry.flags and body["quote_id"] is None
+
+
+# ---- R6: no guess, a specialist confirms, staff get a flag ------------------------------
+
+EARLY_BIRD = "Can I book the Popular Stays Winter 2023/24 Early Bird Deal for 2 adults from 3 May 2027? How much?"
+TRANSFER = "How much is an airport transfer from CMB to Kandy for 2 people?"
+
+
+def _no_price_enquiry(db, body, flag):
+    assert body["enquiry_id"], "no enquiry saved for staff"
+    enquiry = db.get(Enquiry, uuid.UUID(body["enquiry_id"]))
+    assert enquiry.kind == "no_price" and flag in enquiry.flags
+    assert all(c["type"] not in ("price_breakdown", "booking_form") for c in body["ui"])
+    assert any(c["type"] == "specialist_notice" and c["reason"] == "no_price" for c in body["ui"])
+    return enquiry
+
+
+def test_expired_offer_by_name_is_flagged_for_staff(api, db):
+    mention = "Popular Stays Winter 2023/24 Early Bird Deal"
+    api.use(FakeModel(RouterDecision=[R("book", mention)],
+                      TripDetails=[T(tour_mention=mention, adults=2, start_date=date(2027, 5, 3))]))
+    body = api.chat(EARLY_BIRD).json()
+    _no_price_enquiry(db, body, "stale_tour")
+    assert "USD" not in body["message"] and "specialist" in body["message"]
+
+
+def test_expired_offer_is_never_suggested(base):
+    from app.graph.tours import suggest_tours
+    for interests in (["bird"], ["stay"], ["winter"], []):
+        assert "T14" not in [c["tour_id"] for c in suggest_tours(base.tours, interests=interests,
+                                                                 destinations=[], days=None)]
+
+
+def test_service_price_is_not_guessed_and_is_flagged(api, db):
+    api.use(FakeModel(RouterDecision=[R("quote")], TripDetails=[T(adults=2, destinations=["Kandy"])]))
+    body = api.chat(TRANSFER).json()
+    enquiry = _no_price_enquiry(db, body, "unpriced_service")
+    assert "airport transfer" in body["message"] and "won't guess" in body["message"]
+    assert "age" not in body["message"] and body["quote_id"] is None
+    assert "airport transfer" in enquiry.notes                 # staff see what was asked
+
+
+@pytest.mark.parametrize("message, flag", [(EARLY_BIRD, "stale_tour"), (TRANSFER, "unpriced_service")])
+def test_no_price_cases_are_flagged_when_gemini_is_down(api, db, message, flag):
+    api.use(FakeModel())                                       # every model call fails: rules only
+    _no_price_enquiry(db, api.chat(message).json(), flag)
+
+
+@pytest.mark.parametrize("message, mention", [
+    ("Do your tours include airport transfers?", None),                     # no price asked
+    ("How much is the Kandy City Tour for 2 adults on 3 May 2027? Is the transfer included?",
+     "Kandy City Tour"),                                                     # a tour named: the tour wins
+])
+def test_tour_questions_are_not_mistaken_for_services(base, message, mention):
+    from langchain_core.messages import HumanMessage
+
+    from app.graph.nodes import Nodes
+    from app.graph.state import PER_TURN_DEFAULTS
+    state = {**PER_TURN_DEFAULTS, "messages": [HumanMessage(content=message)], "questions_asked": 0,
+             "intent": "quote" if mention else "tour_info", "tour_mention": mention}
+    out = Nodes(base).route(state)
+    assert out["action"] != "handoff" and not out.get("unpriced_service")
 
 
 def test_trace_id_is_stored_on_quote_and_enquiry(db, base):
@@ -253,9 +317,15 @@ def test_tour_id_is_normalised(api):
 CONTACT = {"name": "Test Traveller", "email": "traveller@example.com"}
 
 
-def book(api, quote_id, card="4242 4242 4242 4242"):
+def card(number="4242 4242 4242 4242", **over):
+    """A full mock card, as the booking form sends it."""
+    return {"holder": "Test Traveller", "brand": "visa", "number": number, "exp_month": 12, "exp_year": 28,
+            "cvc": "123", **over}
+
+
+def book(api, quote_id, card_number="4242 4242 4242 4242", **over):
     return api.client.post("/api/v1/bookings", json={"quote_id": str(quote_id), "contact": CONTACT,
-                                                     "card_number": card})
+                                                     "card": card(card_number, **over)})
 
 
 def test_booking_succeeds(api, db):
@@ -266,6 +336,7 @@ def test_booking_succeeds(api, db):
     assert body["payment_reference"].startswith("mock_ch_") and "demo" in body["message"]
     booking = db.get(Booking, uuid.UUID(body["booking_id"]))
     assert booking.status == "confirmed"
+    assert (booking.card_brand, booking.card_last4) == ("visa", "4242") and body["card"] == "Visa ending 4242"
     enquiry = db.get(Enquiry, uuid.UUID(body["enquiry_id"]))
     assert enquiry.contact["email"] == CONTACT["email"] and "Booked (mock)" in enquiry.notes
     again = book(api, quote.id)
@@ -274,7 +345,7 @@ def test_booking_succeeds(api, db):
 
 def test_test_card_fails_politely_and_saves_an_enquiry(api, db):
     quote = quote_s02(api, db)
-    r = book(api, quote.id, card="4000 0000 0000 0002")
+    r = book(api, quote.id, "4000 0000 0000 0002")
     body = r.json()
     assert r.status_code == 200 and body["status"] == "payment_failed"
     assert "Nothing was charged" in body["message"]
@@ -296,8 +367,44 @@ def test_mock_payment_fail_flag(api, db, monkeypatch):
 
 def test_bad_card_number_asks_to_retry(api, db):
     quote = quote_s02(api, db)
-    body = book(api, quote.id, card="1234 5678 9012 ABCD").json()
-    assert body["status"] == "payment_failed" and body["next_steps"] == ["retry"]
+    body = book(api, quote.id, "4242 4242 4242 4241").json()                 # fails the Luhn check
+    assert body["status"] == "payment_failed" and body["next_steps"] == ["retry"] and body["field"] == "number"
+    assert book(api, quote.id, "1234 5678 9012 ABCD").status_code == 422     # not even digits
+
+
+@pytest.mark.parametrize("over, field, words", [
+    ({"brand": "mastercard"}, "brand", "isn't a Mastercard card"),
+    ({"exp_month": 10, "exp_year": 26}, "expiry", "expired"),               # MIRA_TODAY is 2026-11-19
+    ({"exp_year": 2060}, "expiry", "MM/YY"),
+    ({"cvc": "1234"}, "cvc", "3 digits"),
+    ({"holder": "12 34"}, "holder", "name"),
+])
+def test_card_details_are_checked_like_a_real_card(api, db, over, field, words):
+    quote = quote_s02(api, db)
+    body = book(api, quote.id, **over).json()
+    assert body["status"] == "payment_failed" and body["field"] == field and words in body["message"]
+    assert "Nothing was charged" in body["message"] and body.get("enquiry_id") is None
+
+
+def test_other_card_types_and_this_month_expiry_work(api, db):
+    assert book(api, quote_s02(api, db).id, "5555 5555 5555 4444", brand="mastercard").json()["card"] \
+        == "Mastercard ending 4444"
+    body = book(api, quote_s02(api, db).id, "3782 822463 10005", brand="amex", cvc="1234").json()
+    assert body["status"] == "confirmed" and body["card"] == "American Express ending 0005"
+    assert book(api, quote_s02(api, db).id, exp_month=11, exp_year=2026).json()["status"] == "confirmed"
+    amex_short = book(api, quote_s02(api, db).id, "3782 822463 10005", brand="amex", cvc="123").json()
+    assert amex_short["field"] == "cvc" and "front" in amex_short["message"]
+
+
+def test_card_is_never_stored_or_echoed(api, db, caplog):
+    quote = quote_s02(api, db)
+    body = book(api, quote.id, "4000 0000 0000 0002", cvc="987").json()
+    enquiry = db.get(Enquiry, uuid.UUID(body["enquiry_id"]))
+    booking = db.get(Booking, uuid.UUID(body["booking_id"]))
+    stored = str(enquiry.contact) + str(enquiry.notes) + str(vars(booking))
+    assert "4000000000000002" not in stored and "4000 0000" not in stored and "987" not in stored
+    assert booking.card_last4 == "0002"
+    assert "4000 0000 0000 0002" not in caplog.text and "987" not in caplog.text
 
 
 def test_no_price_quote_cannot_be_booked(api, db):
@@ -318,7 +425,7 @@ def test_changed_price_is_not_charged(api, db):
 
 def test_validation_error_never_echoes_the_card(api):
     r = api.client.post("/api/v1/bookings", json={"quote_id": "not-a-uuid", "contact": CONTACT,
-                                                  "card_number": "4242424242424242"})
+                                                  "card": card("4242424242424242")})
     assert r.status_code == 422 and "4242" not in r.text and "quote_id" in r.json()["fields"]
 
 
@@ -356,7 +463,7 @@ def test_stream_sends_steps_text_components_and_the_result(api, db):
     types = [e["type"] for e in events]
     assert types[0] == "RUN_STARTED" and types[-1] == "RUN_FINISHED"
     steps = [e["stepName"] for e in events if e["type"] == "STEP_FINISHED"]
-    assert steps[0] == "guard" and "price" in steps and steps[-1] == "build_ui"
+    assert steps[:2] == ["load_visitor", "guard"] and "price" in steps and steps[-1] == "build_ui"
     text = next(e for e in events if e["type"] == "TEXT_MESSAGE_CONTENT")["delta"]
     assert "USD 315" in text
     ui = [e["value"]["type"] for e in events if e["type"] == "CUSTOM" and e["name"] == "ui_component"]

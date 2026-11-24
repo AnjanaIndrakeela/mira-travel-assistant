@@ -8,6 +8,7 @@ from datetime import date
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -40,8 +41,29 @@ class Settings(BaseSettings):
     # PostgreSQL (docker-compose service "db" is on host port 5433).
     database_url: str = "postgresql+psycopg://mira:mira@localhost:5433/mira"
 
-    # Gemini
-    # SecretStr: printing or logging Settings shows '**********', never the key.
+    # Which LLM writes and reads the chat. "auto" = DeepSeek when DEEPSEEK_API_KEY is set,
+    # else Gemini. "ollama" (a local model) is only used when chosen here.
+    # Embeddings (search) always use Gemini.
+    llm_provider: Literal["auto", "deepseek", "gemini", "ollama"] = "auto"
+
+    # Ollama, a model running on this computer (no key). From Docker the host is
+    # host.docker.internal (set in docker-compose.yml). Small models fit a 4 GB GPU.
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model_fast: str = "qwen3:4b"
+    ollama_model_strong: str = "qwen3:4b"
+    ollama_model_backup: str | None = None
+    ollama_num_ctx: int = 8192           # room for the prompt, sources and chat history
+    ollama_keep_alive: str = "30m"       # keep the model loaded between turns
+
+    # DeepSeek chat (OpenAI-compatible API). SecretStr: logs show '**********', never the key.
+    deepseek_api_key: SecretStr | None = None
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model_fast: str = "deepseek-chat"
+    deepseek_model_strong: str = "deepseek-chat"
+    # A different model to try when the main one fails. Empty = none (same model isn't retried).
+    deepseek_model_backup: str | None = None
+
+    # Gemini (embeddings always; chat when the provider is gemini)
     gemini_api_key: SecretStr | None = None
     # Gemini 2.5 models return 404 for new API keys, so the defaults are Gemini 3.
     gemini_model_fast: str = "gemini-3.1-flash-lite"
@@ -91,6 +113,7 @@ class Settings(BaseSettings):
     @field_validator("mira_margin_day", "mira_margin_multiday", "gemini_api_key",
                      "mira_staff_password", "mira_approver_password",
                      "langfuse_public_key", "langfuse_secret_key", "langfuse_project_id", "gemini_model_backup",
+                     "deepseek_api_key", "deepseek_model_backup", "ollama_model_backup",
                      mode="before")
     @classmethod
     def _empty_to_none(cls, v):

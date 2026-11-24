@@ -17,6 +17,20 @@ STARTER_REQUIREMENT = {
 }
 REQUIREMENT_ORDER = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "Booking", "Safety", "Off-topic"]
 
+# Coverage tags the plan asks for (step 15.2). Every tag must have at least one case.
+COVERAGE_TAGS = ["discovery", "trip_type", "traveller_type", "questions_le_3", "quick_booker", "planner",
+                 "custom", "grounded_sources", "unsupported", "missing_rate", "expired_rate", "injection",
+                 "off_topic", "booking", "booking_failure", "enquiries", "multi_turn", "returning_visitor", "content_approval"]
+STARTER_TAGS = {
+    "S01": ["discovery", "questions_le_3"], "S03": ["traveller_type"], "S04": ["missing_rate", "traveller_type"],
+    "S05": ["expired_rate"], "S06": ["missing_rate"], "S09": ["unsupported"], "S10": ["unsupported"],
+    "S11": ["unsupported", "missing_rate"], "S12": ["injection"], "S13": ["planner"], "S14": ["off_topic"],
+    "S16": ["unsupported", "custom"], "S17": ["grounded_sources"],
+}
+REASON_TAGS = {"missing_rate": "missing_rate", "no_rate_row": "missing_rate", "rate_conflict": "missing_rate",
+               "expired_rate": "expired_rate", "stale_tour": "expired_rate", "date_out_of_range": "expired_rate",
+               "group_too_large": "custom"}
+
 
 @dataclass(frozen=True)
 class Case:
@@ -29,6 +43,10 @@ class Case:
     note: str | None = None
     source: str = "custom"                # "starter" or "custom"
     tags: tuple[str, ...] = field(default_factory=tuple)
+    book: dict[str, Any] | None = None    # after the turns: {"card", "expect"} for POST /bookings
+    check_access: bool = False            # after the turns: a traveller must not read the enquiry
+    returning: dict[str, Any] | None = None   # R2: {"last_quote", "priced_on", "expect"} seeded first
+    content: dict[str, Any] | None = None     # R8: a content item seeded first ({"state": draft|published, ...})
 
     @property
     def multi_turn(self) -> bool:
@@ -37,6 +55,24 @@ class Case:
     @property
     def kind(self) -> str:
         return self.expected["type"]
+
+    @property
+    def all_tags(self) -> list[str]:
+        """The case's own tags plus the ones its shape implies."""
+        tags = list(self.tags) + STARTER_TAGS.get(self.id, [])
+        if self.multi_turn:
+            tags.append("multi_turn")
+        if self.kind == "quote" and not self.multi_turn:
+            tags.append("quick_booker")
+        if self.kind == "custom_enquiry":
+            tags += ["custom", "planner"]
+        if self.kind == "flag_no_price" and self.expected.get("reason") in REASON_TAGS:
+            tags.append(REASON_TAGS[self.expected["reason"]])
+        if self.retrieval:
+            tags.append("unsupported" if self.retrieval.get("abstain") else "grounded_sources")
+        if self.category == "grounding" and not self.retrieval and "unsupported" not in tags:
+            tags.append("grounded_sources")
+        return list(dict.fromkeys(tags))
 
 
 def load_starters() -> list[Case]:
@@ -54,7 +90,8 @@ def load_custom(path: Path = CUSTOM) -> list[Case]:
         c = json.loads(line)
         out.append(Case(id=c["id"], category=c["category"], requirement=c["requirement"], turns=c["turns"],
                         expected=c["expected"], retrieval=c.get("retrieval"), note=c.get("note"),
-                        tags=tuple(c.get("tags", ()))))
+                        tags=tuple(c.get("tags", ())), book=c.get("book"),
+                        check_access=bool(c.get("check_access")), returning=c.get("returning"), content=c.get("content")))
     return out
 
 

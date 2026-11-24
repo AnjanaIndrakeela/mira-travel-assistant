@@ -15,19 +15,22 @@ export const ACCENT_BAR: Record<Accent, string> = {
   coral: "bg-accent-coral",
 };
 
-export function Card({ accent, children, wide = false, label }: {
+export function Card({ accent, children, wide = false, fluid = false, label }: {
   accent?: Accent;
   children: ReactNode;
   wide?: boolean;
+  /** Fill a grid cell (tour cards side by side on wider screens). */
+  fluid?: boolean;
   label?: string;
 }) {
+  const width = fluid ? "flex h-full flex-col" : wide ? "max-w-md" : "max-w-card";
   return (
     <section
       aria-label={label}
-      className={`w-full overflow-hidden rounded-card border border-line bg-surface ${wide ? "max-w-md" : "max-w-card"}`}
+      className={`w-full overflow-hidden rounded-card border border-line bg-surface ${width}`}
     >
       {accent && <div aria-hidden className={`h-1.5 ${ACCENT_BAR[accent]}`} />}
-      <div className="flex flex-col gap-2.5 p-4">{children}</div>
+      <div className={`flex flex-col gap-2.5 p-4 ${fluid ? "flex-1" : ""}`}>{children}</div>
     </section>
   );
 }
@@ -48,25 +51,36 @@ export function Pill({ children, onClick, type = "button", disabled, variant = "
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`min-h-10 rounded-button px-4 py-2 text-brand-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-orange disabled:cursor-not-allowed disabled:opacity-50 ${look}`}
+      className={`min-h-11 rounded-button px-4 py-2 text-brand-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-orange disabled:cursor-not-allowed disabled:opacity-50 ${look}`}
     >
       {children}
     </button>
   );
 }
 
-export function Field({ label, hint, ...input }: React.InputHTMLAttributes<HTMLInputElement> & {
+export function Field({ label, hint, error, className = "", ...input }: React.InputHTMLAttributes<HTMLInputElement> & {
   label: string;
   hint?: string;
+  /** Shown under the input in place of the hint; marks the input invalid. */
+  error?: string | null;
 }) {
+  const id = input.id ?? input.name;
   return (
-    <label className="flex flex-col gap-1 text-brand-sm">
+    <label className={`flex min-w-0 flex-col gap-1 text-brand-sm ${className}`}>
       <span className="font-semibold">{label}</span>
       <input
         {...input}
-        className="min-h-10 rounded-input border border-line px-3 py-2 text-brand-md outline-none focus:border-brand-orange"
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error && id ? `${id}-error` : undefined}
+        className={`min-h-11 w-full min-w-0 rounded-input border px-3 py-2 text-brand-md outline-none focus:border-brand-orange ${error ? "border-accent-coral" : "border-line"}`}
       />
-      {hint && <span className="text-brand-xs text-muted">{hint}</span>}
+      {error ? (
+        <span id={id ? `${id}-error` : undefined} className="text-brand-xs font-semibold text-accent-coral">
+          {error}
+        </span>
+      ) : (
+        hint && <span className="text-brand-xs text-muted">{hint}</span>
+      )}
     </label>
   );
 }

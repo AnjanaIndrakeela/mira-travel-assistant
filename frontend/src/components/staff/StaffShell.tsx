@@ -83,6 +83,25 @@ export function StaffShell({ children }: { children: React.ReactNode }) {
             </span>
           </Link>
           {me && (
+            <nav aria-label="Staff sections" className="flex items-center gap-1">
+              {[
+                ["/staff/enquiries", "Enquiries"],
+                ["/staff/content", "Content"],
+              ].map(([href, label]) => (
+                <Link
+                  key={href}
+                  href={href}
+                  aria-current={pathname.startsWith(href) ? "page" : undefined}
+                  className={`rounded-button px-2.5 py-1.5 text-brand-xs font-semibold ${
+                    pathname.startsWith(href) ? "bg-ink text-brand-white" : "hover:bg-line"
+                  }`}
+                >
+                  {label}
+                </Link>
+              ))}
+            </nav>
+          )}
+          {me && (
             <div className="flex items-center gap-3">
               <span className="hidden text-brand-xs text-muted sm:inline">
                 {me.email} · {me.role}

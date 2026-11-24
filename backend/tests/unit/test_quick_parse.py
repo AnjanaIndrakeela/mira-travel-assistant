@@ -9,7 +9,7 @@ import pytest
 from app.graph.build import build_graph
 from app.graph.nodes import Deps
 from app.graph.quick_parse import find_date, find_party, find_tour, quick_analysis
-from tests.unit.test_graph import TODAY, FakeModel, make, turn
+from tests.unit.test_graph import TODAY, FakeModel, make, shown, turn
 
 
 @pytest.fixture(scope="module")
@@ -65,8 +65,29 @@ def test_tours(base, text, tour):
     assert (next(t.tour_id for t in base.tours if t.name == name) if name else None) == tour
 
 
-def test_nothing_to_go_on_keeps_the_handoff(base):
-    assert quick_analysis("Tell me something nice", base.tours, TODAY) is None
+def test_nothing_to_go_on_asks_the_first_question(base):
+    r = quick_analysis("Tell me something nice", base.tours, TODAY)
+    assert r.intent.value == "greeting"                 # R1's first question, not a handoff
+
+
+@pytest.mark.parametrize("text, places", [
+    ("I want to plan a tour to Anuradhapura", ["Anuradhapura"]),
+    ("Plan a trip to Ella and Nuwara Eliya", ["Ella", "Nuwara Eliya"]),
+    ("I want to visit Sigiriya", ["Sigiriya"]),
+    ("We'd love a holiday somewhere warm", []),
+])
+def test_trip_planning_is_read_without_gemini(base, text, places):
+    r = quick_analysis(text, base.tours, TODAY)
+    assert r.intent.value == "discovery" and r.trip.destinations == places
+
+
+@pytest.mark.parametrize("text, intent", [
+    ("Can I see your refund policy?", "policy"),
+    ("I want to speak to a person", "handoff"),
+    ("Can a human call me back?", "handoff"),
+])
+def test_policy_and_person_requests_are_not_planning(base, text, intent):
+    assert quick_analysis(text, base.tours, TODAY).intent.value == intent
 
 
 # ---- whole journeys with Gemini down ------------------------------------------------------
@@ -105,9 +126,33 @@ def test_s04_still_no_price_with_gemini_down(base):
     assert out["quote"] is None and "no_price" in out["flags"]
 
 
-def test_unreadable_message_is_still_a_safe_handoff(base):
-    out = turn(make(base, down()), "Hmm, what would you recommend for us?")
-    assert out["action"] == "handoff" and out["quote"] is None
+def test_recommendation_request_shows_tours_with_gemini_down(base):
+    g = make(base, down())
+    out = turn(g, "Hmm, what would you recommend for us?")
+    assert out["action"] == "ask" and out["question"] and not shown(out)    # find out first
+    out = turn(g, "2 adults from 3 May 2027, about a week")
+    assert out["quote"] is None or out["assumed_tour"]
+    assert "tour_card" in shown(out)                                      # then the full answer
+
+
+def test_planning_a_tour_to_a_place_with_gemini_down(base):
+    """The screenshot case: never a handoff for a planner; tours that visit the place, one question."""
+    g = make(base, down())
+    out = turn(g, "I want to plan a tour to Anuradhapura")
+    assert out["action"] == "ask" and "handoff_requested" not in out["flags"]
+    assert out["question"] and out["questions_asked"] == 1 and not shown(out)
+    assert "how many days" in out["question"]
+    assert out["suggested_tour_ids"][:2] == ["T12", "T09"] or out["suggested_tour_ids"][:2] == ["T09", "T12"]
+
+
+def test_unreadable_message_gets_a_question_not_a_handoff(base):
+    out = turn(make(base, down()), "Tell me something nice")
+    assert out["action"] == "greet" and out["question"] and "handoff_requested" not in out["flags"]
+
+
+def test_asking_for_a_person_is_still_a_handoff_with_gemini_down(base):
+    out = turn(make(base, down()), "I'd like to speak to a person please")
+    assert out["action"] == "handoff" and "handoff_requested" in out["flags"]
 
 
 def test_gemini_working_never_uses_the_rules(base):
@@ -138,4 +183,12 @@ def test_planner_with_gemini_down_suggests_tours(base):
 
 def test_s13_first_turn_with_gemini_down(base):
     out = turn(make(base, down()), "We want to see the ancient cities, about a week.")
-    assert out["action"] == "match_tours" and out["tour_cards"][0]["tour_id"] == "T09"
+    assert out["action"] == "ask" and out["suggested_tour_ids"][0] == "T09" and not shown(out)
+
+
+def test_named_place_outranks_remembered_interests(base):
+    """A returning visitor who liked wildlife now asks for Anuradhapura: tours that go there come first."""
+    from app.graph.tours import suggest_tours
+    cards = suggest_tours(base.tours, interests=["wildlife"], destinations=["Anuradhapura"], days=None)
+    assert [c["tour_id"] for c in cards[:2]] == ["T12", "T09"]
+    assert all("anuradhapura" in c["destinations"] for c in cards[:2])

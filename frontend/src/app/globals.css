@@ -23,3 +23,18 @@ body {
     animation: none !important;
   }
 }
+
+/* New messages and cards ease in (short, per the motion rule; off with reduced motion). */
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.reveal {
+  animation: reveal 180ms ease-out both;
+}

@@ -1,14 +1,16 @@
 """invoke_structured(): every structured LLM call goes through here (plan §16 step 7).
 
-1. Ask for the schema with Gemini's native JSON-schema output.
+1. Ask for the schema: Gemini's native JSON-schema output, or function calling for DeepSeek
+   (app.llm.client.structured_method).
 2. If parsing fails, one repair attempt: show the model its own output and the error.
 3. If that fails too, return the caller's SAFE fallback (a handoff, never a quote),
    or raise StructuredOutputError when no fallback was given.
 
 Models are tried in this order: the requested one, then the quick backup
-(GEMINI_MODEL_BACKUP), then the other main model.
+(GEMINI_MODEL_BACKUP / DEEPSEEK_MODEL_BACKUP), then the other main model. A model name already
+tried is not tried again (DeepSeek's fast and strong are the same model by default).
 
-Gemini errors are handled by kind:
+Errors (Gemini or DeepSeek) are handled by kind:
 - overloaded (503 "high demand") or a dropped connection: retry the same model once after
   1 s, then switch (the second model gets one retry after 2 s);
 - timeout (our per-call timeout, or 504 DEADLINE_EXCEEDED): switch to the next model at once.
@@ -18,8 +20,9 @@ Gemini errors are handled by kind:
 - anything else (no key, bad request): switch model, then the fallback.
 
 A model that fails rests (60 s after a quota error, 30 s when overloaded or timing out), so
-later calls skip it. Each call has a 25 s budget, and a model is only started if its full
-timeout still fits in what's left. A chat turn never crashes on an LLM error; at worst it
+later calls skip it. Each call has a budget (25 s on Gemini, 50 s on DeepSeek, 55 s on a local
+Ollama model, which are slower
+per call), and a model is only started if its full timeout still fits in what's left. A chat turn never crashes on an LLM error; at worst it
 gets the safe fallback.
 """
 
@@ -34,14 +37,16 @@ from typing import Any, TypeVar
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel
 
-from app.llm.client import TIMEOUT_S, ModelKind, get_chat_model
+from app.llm.client import ModelKind, get_chat_model, model_name, provider, structured_method, timeout_for
 
 logger = logging.getLogger("mira.llm")
 T = TypeVar("T", bound=BaseModel)
 
-DROPPED_CONNECTION = {"RemoteProtocolError", "ConnectError", "ReadError", "ConnectionResetError"}
+DROPPED_CONNECTION = {"RemoteProtocolError", "ConnectError", "ReadError", "ConnectionResetError",
+                      "ConnectionRefusedError",                        # Ollama not running
+                      "APIConnectionError", "InternalServerError"}     # the last two: DeepSeek (openai SDK)
 TIMEOUT_NAMES = {"ReadTimeout", "ConnectTimeout", "WriteTimeout", "PoolTimeout", "TimeoutException",
-                 "TimeoutError", "DeadlineExceeded"}
+                 "TimeoutError", "DeadlineExceeded", "APITimeoutError"}
 TIMEOUT_TEXT = ("504", "DEADLINE_EXCEEDED", "Deadline expired", "timed out")
 OVERLOADED_TEXT = ("503", "UNAVAILABLE", "high demand", "overloaded", "500 INTERNAL")
 QUOTA_TEXT = ("429", "RESOURCE_EXHAUSTED", "quota", "rate limit")
@@ -83,7 +88,14 @@ def _models(model: Any, kind: ModelKind) -> list[Any]:
     if model is not None:
         return list(model) if isinstance(model, (list, tuple)) else [model]
     kinds = list(dict.fromkeys([kind, "backup", OTHER[kind]]))     # backup is quick: try it second
-    chain = [_Lazy(k) for k in kinds]
+    seen: set[str | None] = set()
+    chain = []
+    for k in kinds:                  # no model set, or the same model again: skip it
+        name = _name(k)
+        if (name is None and k == "backup") or (name is not None and name in seen):
+            continue
+        seen.add(name)
+        chain.append(_Lazy(k))
     now = _clock()
     ready = [c for c in chain if _resting_until.get(c.kind, 0) <= now]
     return ready or chain            # all resting: try them anyway rather than give up
@@ -93,6 +105,19 @@ def _models(model: Any, kind: ModelKind) -> list[Any]:
 # works instead of waiting through the same errors again (real models only).
 REST_SECONDS = {"quota": 60.0, "overloaded": 30.0, "timeout": 30.0}
 BUDGET_SECONDS = 25.0          # per call: no retry or model is started that wouldn't fit in it
+DEEPSEEK_BUDGET_SECONDS = 50.0 # DeepSeek is slower per call
+OLLAMA_BUDGET_SECONDS = 55.0   # a local model: one try of the 50 s limit, then the safe fallback
+
+
+def _name(kind: ModelKind) -> str | None:
+    try:
+        return model_name(kind)
+    except Exception:  # noqa: BLE001  (settings problem: let get_chat_model report it)
+        return kind
+
+
+def budget_seconds() -> float:
+    return {"deepseek": DEEPSEEK_BUDGET_SECONDS, "ollama": OLLAMA_BUDGET_SECONDS}.get(provider(), BUDGET_SECONDS)
 _resting_until: dict[str, float] = {}
 _clock = time.monotonic
 
@@ -124,7 +149,7 @@ class _Lazy:
 
     @property
     def timeout(self) -> float:
-        return TIMEOUT_S[self.kind]
+        return timeout_for(self.kind)
 
 
 def invoke_structured(schema: type[T], messages: Sequence[BaseMessage], *, kind: ModelKind = "fast",
@@ -133,7 +158,7 @@ def invoke_structured(schema: type[T], messages: Sequence[BaseMessage], *, kind:
     messages = list(messages)
     error: Any = None
     repaired = False
-    deadline = _clock() + BUDGET_SECONDS
+    deadline = _clock() + (budget_seconds() if model is None else BUDGET_SECONDS)
     for i, candidate in enumerate(_models(model, kind)):
         # out of time: a quick safe reply beats a long wait. A real model must have room for
         # its whole timeout; a test fake (no timeout) only needs the budget not to be over.
@@ -142,7 +167,8 @@ def invoke_structured(schema: type[T], messages: Sequence[BaseMessage], *, kind:
         waits = list(WAITS[min(i, len(WAITS) - 1)])
         try:
             m = candidate.get() if isinstance(candidate, _Lazy) else candidate
-            runnable = m.with_structured_output(schema, method="json_schema", include_raw=True)
+            method = structured_method() if isinstance(candidate, _Lazy) else "json_schema"
+            runnable = m.with_structured_output(schema, method=method, include_raw=True)
         except Exception as exc:  # noqa: BLE001  (no key)
             error = f"{exc.__class__.__name__}: {exc}"
             continue

@@ -176,20 +176,23 @@ class Retriever:
         rest = [r for r in results if r not in policy and not r.superseded_by]
         top = (policy + superseded + rest)[:k]
 
-        abstain, reason = self._abstain(query, top, policy_docs, include_opinion)
+        abstain, reason = self._abstain(query, top, policy_docs, include_opinion, tour_id)
         return Retrieved(query=query, chunks=top, abstain=abstain, reason=reason, policy_topics=topics)
 
     def known_places(self, query: str) -> list[str]:
         return [t for t in tokenize(query) if t in PLACES and self.bm25.has_term(t)]
 
     def _abstain(self, query: str, top: list[RetrievedChunk], policy_docs,
-                 include_opinion: bool) -> tuple[bool, str | None]:
+                 include_opinion: bool, tour_id: str | None = None) -> tuple[bool, str | None]:
         if self.unknown_places(query):
             return True, "unknown_place"
         if not top:
             return True, "no_match"
         grounded = (policy_docs or self.known_places(query)
-                    or (include_opinion and any(r.trust is Trust.OPINION for r in top)))
+                    or (include_opinion and any(r.trust is Trust.OPINION for r in top))
+                    # code matched the tour the question names, and its own pages came back
+                    # (a tour title like "Hill Country Tour" names no place)
+                    or (tour_id is not None and any(r.doc_id == tour_id and not r.stale for r in top)))
         if max(r.cosine for r in top) < MIN_COSINE and not grounded:
             return True, "low_similarity"
         if asks_about_timing(query) and not any(MONTHS.search(r.text.split("\n\n", 1)[-1]) for r in top):

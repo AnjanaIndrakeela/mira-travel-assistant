@@ -1,7 +1,11 @@
 // Talks to the Mira backend. Keeps the conversation and visitor IDs in localStorage (wrapped
 // in try/catch: storage can be blocked or full), and turns every failure into friendly text.
 
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1").replace(/\/$/, "");
+// "http://localhost:8000" and "http://localhost:8000/api/v1" both work: the version path is added if missing.
+const BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1").replace(/\/+$/, "");
+export const API_URL = BASE.endsWith("/api/v1") ? BASE : `${BASE}/api/v1`;
+/** Full URL of a file our media route serves ("/api/v1/media/ella/x.jpg"). */
+export const mediaUrl = (path: string) => API_URL.replace(/\/api\/v1$/, "") + path;
 
 export type Source = { n: number; doc_id: string; title: string; section: string };
 export type UIComponent = { type: string; [key: string]: unknown };
@@ -46,6 +50,11 @@ export const ids = {
   visitor: () => read(KEYS.visitor),
   /** Start a new conversation; the visitor ID is kept (R2: returning visitors). */
   startOver: () => write(KEYS.conversation, null),
+  /** "Start fresh": forget this browser's visitor too, so nothing from last time is reused. */
+  forgetVisitor: () => {
+    write(KEYS.conversation, null);
+    write(KEYS.visitor, null);
+  },
 };
 
 const OFFLINE = "I can't reach our server right now. Please check your connection and try again.";
@@ -94,9 +103,10 @@ export async function sendChat(message: string): Promise<ChatResponse> {
   return res;
 }
 
-export type HistoryMessage = { role: "traveller" | "mira"; text: string };
+/** One message of the saved chat; Mira's replies carry the cards shown with them. */
+export type HistoryMessage = { role: "traveller" | "mira"; text: string; ui?: UIComponent[] };
 
-/** The current conversation's messages, or [] if there is none (or the server forgot it). */
+/** The current conversation's messages (kept in the server's database), or [] if there is none. */
 export async function loadHistory(): Promise<HistoryMessage[]> {
   const conversation = ids.conversation();
   if (!conversation) return [];
@@ -108,6 +118,19 @@ export async function loadHistory(): Promise<HistoryMessage[]> {
   }
 }
 
+export type Welcome = { message: string; ui: UIComponent[]; quote_id: string | null; status: string };
+
+/** R2: a returning visitor's welcome, with the last quote re-priced today (null for a new visitor). */
+export async function loadWelcome(): Promise<Welcome | null> {
+  const visitor = ids.visitor();
+  if (!visitor || ids.conversation()) return null;
+  try {
+    return await call<Welcome | null>(`/visitors/${visitor}/welcome`, { method: "GET" }, 10_000);
+  } catch {
+    return null;
+  }
+}
+
 // ---- Phase 11: the event stream, quotes, bookings, enquiries --------------------------------
 
 /** Shown from the moment a message is sent (the first step reads it). */
@@ -115,6 +138,7 @@ export const FIRST_STEP = "Reading your message";
 
 /** What Mira is doing AFTER each graph step the stream reports as finished. */
 export const STEP_LABELS: Record<string, string> = {
+  load_visitor: "Reading your message",
   guard: "Working out what you need",
   discovery: "Working out what you need",
   route: "Looking into it",
@@ -138,7 +162,7 @@ export async function streamChat(message: string, onStep: (step: string) => void
   if (visitor) payload.visitor_id = visitor;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 90_000);
+  const timer = setTimeout(() => controller.abort(), 120_000);
   let res: Response;
   try {
     res = await fetch(`${API_URL}/chat/stream`, {
@@ -235,13 +259,26 @@ export type BookingResult = {
   amount_charged_usd: number | null;
   next_steps: ("retry" | "payment_link" | "enquiry_saved" | "new_quote")[];
   enquiry_id: string | null;
+  /** The card detail the server asks to fix. */
+  field: "holder" | "brand" | "number" | "expiry" | "cvc" | null;
+  /** "Visa ending 4242" on a confirmed booking. */
+  card: string | null;
+};
+
+export type CardPayload = {
+  holder: string;
+  brand: "visa" | "mastercard" | "amex";
+  number: string;
+  exp_month: number;
+  exp_year: number;
+  cvc: string;
 };
 
 /** Straight from the form to the API: never through the chat, the LLM or the traces. */
-export function book(quoteId: string, contact: Contact, cardNumber: string): Promise<BookingResult> {
+export function book(quoteId: string, contact: Contact, card: CardPayload): Promise<BookingResult> {
   return call<BookingResult>("/bookings", {
     method: "POST",
-    body: JSON.stringify({ quote_id: quoteId, contact, card_number: cardNumber }),
+    body: JSON.stringify({ quote_id: quoteId, contact, card }),
   });
 }
 

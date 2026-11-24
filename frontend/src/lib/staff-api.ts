@@ -117,3 +117,44 @@ export const flagLabel = (f: string) => FLAG_LABELS[f] ?? f.replace(/_/g, " ");
 
 export const when = (iso: string) =>
   new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+// ---- R8 content approval (Phase 17B) ------------------------------------------------------------
+
+export type ContentStatus = "draft" | "published" | "rejected";
+
+export type ContentSummary = {
+  id: string;
+  status: ContentStatus;
+  title: string;
+  doc_id: string | null;
+  days: number | null;
+  places: string[];
+  created_by: string;
+  approved_by: string | null;
+  created_at: string;
+  published_at: string | null;
+};
+
+export type ContentDetail = ContentSummary & {
+  body: string;
+  overview: string;
+  itinerary: { day: number; title: string; description: string }[];
+  media: { id: string; url: string; alt: string }[];
+  sources: string[];
+  command: string;
+  review_note: string | null;
+  indexed: boolean | null;
+};
+
+/** Media URLs come back as API paths ("/api/v1/media/ella/x.svg"). */
+export { mediaUrl } from "./api";
+
+export const contentApi = {
+  list: () => call<ContentSummary[]>("/staff/content", send("GET"), 15_000),
+  get: (id: string) => call<ContentDetail>(`/staff/content/${encodeURIComponent(id)}`, send("GET"), 15_000),
+  // the content agent calls Gemini twice (plan, draft): allow time
+  create: (command: string) => call<ContentDetail>("/staff/content", send("POST", { command }), 120_000),
+  publish: (id: string) => call<ContentDetail>(`/staff/content/${encodeURIComponent(id)}/publish`, send("POST"), 60_000),
+  reject: (id: string, note: string) =>
+    call<ContentDetail>(`/staff/content/${encodeURIComponent(id)}/reject`, send("POST", { note }), 15_000),
+};

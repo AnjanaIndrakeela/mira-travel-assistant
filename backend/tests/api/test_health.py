@@ -30,12 +30,14 @@ def test_health_reports_dataset_loaded_and_unchanged(client):
 def test_health_reports_every_check(client):
     body = client.get("/api/v1/health").json()
     assert set(body) == {"status", "today", "dataset_found", "dataset_integrity", "data_issues",
-                         "database", "tracing", "llm_configured", "index"}
+                         "database", "tracing", "llm_configured", "llm_provider", "index"}
+    assert body["llm_provider"] in {"deepseek", "gemini"}
     assert body["database"] in {"ok", "unavailable"}
 
 
 def test_health_never_shows_the_api_key(client):
-    assert "gemini_api_key" not in client.get("/api/v1/health").text
+    text = client.get("/api/v1/health").text
+    assert "gemini_api_key" not in text and "deepseek_api_key" not in text and "sk-" not in text
 
 
 def test_old_unversioned_path_is_404(client):

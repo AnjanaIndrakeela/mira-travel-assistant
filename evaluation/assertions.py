@@ -50,9 +50,10 @@ class TurnResult:
     intent: str | None = None
     flags: list[str] = field(default_factory=list)
     questions_asked: int = 0
-    quote: dict[str, Any] | None = None       # saved quote: status, tour_id, price/deposit/balance, cost_usd
+    quote_id: str | None = None
+    quote: dict[str, Any] | None = None       # saved quote: status, tour_id, price/deposit/balance, cost_usd, trace_id
     recomputed: dict[str, Any] | None = None  # calculate_quote() on the stored inputs: status, price, deposit
-    enquiry: dict[str, Any] | None = None     # saved enquiry: kind, flags
+    enquiry: dict[str, Any] | None = None     # saved enquiry: kind, flags, trace_id
     trace_id: str | None = None
     trace_url: str | None = None
     llm_unavailable: bool = False
@@ -76,9 +77,16 @@ class CaseRun:
     case_id: str
     turns: list[TurnResult]
     published: set[str] = field(default_factory=set)
+    tracing: bool = False                      # Langfuse on: quotes must carry a trace_id
+    booking: dict[str, Any] | None = None      # POST /bookings result: status, message, enquiry kind
+    access: dict[str, int] | None = None       # HTTP status a traveller gets reading the enquiry
+    judge: dict[str, Any] | None = None        # LLM judge: passed, reason (or unavailable)
+    welcome: dict[str, Any] | None = None      # R2: GET /visitors/{id}/welcome before the turns
+    content: dict[str, Any] | None = None      # R8: the seeded item, publish attempts, its doc_id
 
     def to_dict(self) -> dict:
-        return {"case_id": self.case_id, "turns": [asdict(t) for t in self.turns]}
+        return {"case_id": self.case_id, "turns": [asdict(t) for t in self.turns], "booking": self.booking,
+                "access": self.access, "judge": self.judge, "welcome": self.welcome, "content": self.content}
 
 
 # ---- helpers ------------------------------------------------------------------------------------
@@ -247,9 +255,100 @@ def no_error(run: CaseRun) -> Check:
     return Check("no_error", not bad, "; ".join(bad) or "every turn answered")
 
 
-def check_case(run: CaseRun, expected: dict, retrieval: dict | None = None) -> list[Check]:
+def quote_saved_as_enquiry(run: CaseRun) -> Check | None:
+    """R7: every saved quote has a private enquiry, and (with tracing on) both carry the trace."""
+    quoted = [(i, t) for i, t in enumerate(run.turns, 1) if t.quote]
+    if not quoted:
+        return None
+    bad = []
+    for i, t in quoted:
+        if not t.enquiry:
+            bad.append(f"turn {i}: no enquiry")
+        elif run.tracing and not (t.quote.get("trace_id") and t.enquiry.get("trace_id")):
+            bad.append(f"turn {i}: no trace_id")
+    return Check("quote_saved_as_enquiry", not bad, "; ".join(bad) or f"{len(quoted)} quote(s) saved with enquiry and trace")
+
+
+def booking_result(run: CaseRun, book: dict | None) -> Check | None:
+    if not book:
+        return None
+    b = run.booking or {}
+    ok = b.get("status") == book["expect"]
+    if ok and book["expect"] == "payment_failed":        # never stuck: an enquiry and a way forward
+        ok = b.get("enquiry_kind") == "booking_failed" and bool(b.get("next_steps"))
+    return Check("booking_result", ok, f"wanted {book['expect']}, got {b or 'no booking'}")
+
+
+def enquiry_private(run: CaseRun) -> Check | None:
+    if run.access is None:
+        return None
+    a = run.access
+    ok = a.get("public") in (404, 405) and a.get("staff") == 401
+    return Check("enquiry_private", ok, f"traveller read: public route {a.get('public')}, staff route {a.get('staff')}")
+
+
+def welcome_back(run: CaseRun, spec: dict | None) -> Check | None:
+    """R2: the last quote is re-run by the engine. Still valid -> a NEW quote whose price equals
+    the engine's; no longer valid -> no quote and the old price never repeated."""
+    if spec is None:
+        return None
+    w = run.welcome or {}
+    problems = []
+    if w.get("http") != 200:
+        problems.append(f"welcome returned HTTP {w.get('http')}")
+    elif w.get("status") != spec["expect"]:
+        problems.append(f"status {w.get('status')}, expected {spec['expect']}")
+    elif spec["expect"] == "ok":
+        if not w.get("quote_id") or w.get("quote_id") == w.get("old_quote_id"):
+            problems.append("no new re-priced quote")
+        elif w.get("price_usd") != w.get("engine_price_usd"):
+            problems.append(f"shown {w.get('price_usd')} but the engine says {w.get('engine_price_usd')}")
+    else:
+        if w.get("quote_id"):
+            problems.append("an expired quote was shown with a price")
+        if w.get("old_price_usd") in amounts(w.get("message") or ""):
+            problems.append("the old price was repeated")
+    if any(c.get("type") != "welcome_back" for c in w.get("ui") or []) or not w.get("ui"):
+        problems.append("no welcome_back component")
+    return Check("welcome_back", not problems, "; ".join(problems) or f"{w.get('status')}: {w.get('message', '')[:80]}")
+
+
+def content_approval(run: CaseRun, spec: dict | None) -> list[Check]:
+    """R8: only an approver publishes; a draft is never shown; a published tour is answerable
+    (its own page is retrieved) but its price goes to a specialist."""
+    if spec is None:
+        return []
+    c = run.content or {}
+    out = []
+    if spec.get("roles"):
+        ok = c.get("traveller_publish") == 401 and c.get("staff_publish") == 403 and c.get("staff_status") == "draft"
+        out.append(Check("only_approver_publishes", ok, f"traveller {c.get('traveller_publish')}, staff "
+                         f"{c.get('staff_publish')}, status after: {c.get('staff_status')}"))
+    title = (c.get("title") or "").lower()
+    if spec["state"] == "draft":
+        shown = [t.message[:40] for t in run.turns
+                 if title and (title in t.response.lower() or title in json.dumps(t.ui).lower())]
+        out.append(Check("draft_never_shown", not shown, f"draft shown in: {shown}" if shown else "never shown"))
+    else:
+        doc = c.get("doc_id")
+        found = any(doc in [*t.retrieved, *t.cited] or any(u.get("tour_id") == doc for u in t.ui) for t in run.turns)
+        out.append(Check("published_answerable", bool(doc) and found, f"{doc} retrieved or shown: {found}"))
+    return out
+
+
+def judge_verdict(run: CaseRun) -> Check | None:
+    """The LLM judge's verdict on a behaviour rubric. Unavailable (Gemini down) = not counted."""
+    j = run.judge
+    if not j or j.get("passed") is None:
+        return None
+    return Check("judge", bool(j["passed"]), j.get("reason", ""))
+
+
+def check_case(run: CaseRun, expected: dict, retrieval: dict | None = None, *, book: dict | None = None,
+               returning: dict | None = None, content: dict | None = None) -> list[Check]:
     checks = [no_error(run), price_exact(run, expected), price_reverified(run), no_invented_amount(run),
               no_price_when_flagged(run, expected), flag_saved(run, expected), custom_enquiry(run, expected),
               ui_valid(run), no_draft_retrieved(run), grounding(run, retrieval), no_cost_leak(run),
-              questions_le_3(run)]
+              questions_le_3(run), quote_saved_as_enquiry(run), booking_result(run, book), enquiry_private(run),
+              welcome_back(run, returning), *content_approval(run, content), judge_verdict(run)]
     return [c for c in checks if c is not None]

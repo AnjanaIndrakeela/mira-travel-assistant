@@ -31,9 +31,10 @@ def card(**over):
 
 # ---- 11.2 / 11.3 catalog ----------------------------------------------------------------
 
-def test_catalog_has_the_eight_components():
+def test_catalog_has_the_nine_components():
     assert set(COMPONENT_TYPES) == {"traveller_picker", "tour_card", "itinerary_day", "price_breakdown",
-                                    "booking_form", "specialist_notice", "source_list", "welcome_back"}
+                                    "booking_form", "specialist_notice", "source_list", "welcome_back",
+                                    "photo_gallery"}
     names = {s["properties"]["type"]["const"] for s in json_schema()["$defs"].values() if "type" in s.get("properties", {})}
     assert names == set(COMPONENT_TYPES)
 

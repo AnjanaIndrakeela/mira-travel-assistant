@@ -14,6 +14,8 @@ from app.api.errors import install_error_handlers
 from app.api.health import router as health_router
 from app.api.quotes import router as quotes_router
 from app.api.staff import router as staff_router
+from app.api.visitors import router as visitors_router
+from app.api.content import router as content_router
 from app.api.tours import router as tours_router
 from app.core.config import get_settings
 from app.core.logging import install_log_masking
@@ -21,6 +23,7 @@ from app.data_loader import get_dataset
 from app.data_loader.integrity import verify
 from app.db.seed import seed
 from app.db.session import create_tables, get_sessionmaker
+from app.graph.content_workflow import load_published
 from app.rag import get_retriever
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -47,6 +50,9 @@ async def lifespan(app: FastAPI):
         create_tables()
         with get_sessionmaker()() as session, session.begin():
             logger.info("Seed: %s", seed(session).summary())
+        with get_sessionmaker()() as session:       # R8: approved content joins the library
+            if n := load_published(session):
+                logger.info("Content items published by approvers: %d added to the library", n)
     except Exception as exc:  # noqa: BLE001
         logger.error("Database setup skipped: %s", exc.__class__.__name__)
 
@@ -74,5 +80,5 @@ app.add_middleware(
 
 install_error_handlers(app)
 for r in (health_router, chat_router, quotes_router, enquiries_router, tours_router, bookings_router,
-          staff_router):
+          staff_router, visitors_router, content_router):
     app.include_router(r, prefix="/api/v1")

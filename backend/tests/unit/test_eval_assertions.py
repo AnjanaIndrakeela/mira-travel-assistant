@@ -181,3 +181,103 @@ def test_cases_load_with_requirements_and_enough_multi_turn():
     multi = [c.id for c in cases if c.multi_turn]
     assert len(multi) >= 5 and {"S03", "S13", "C-M01"} <= set(multi)
     assert {c.kind for c in cases} <= {"quote", "quote_sequence", "flag_no_price", "behaviour", "custom_enquiry"}
+
+
+# ---- Phase 15: R7, booking, access, judge, coverage ------------------------------------------------
+
+def test_every_quote_needs_an_enquiry_and_a_trace_when_tracing():
+    t = priced(enquiry={"kind": "quote", "flags": [], "trace_id": "abc"})
+    t.quote["trace_id"] = "abc"
+    r = run(t)
+    r.tracing = True
+    assert result(r, "quote_saved_as_enquiry").passed
+    t.enquiry["trace_id"] = None
+    assert not result(r, "quote_saved_as_enquiry").passed
+    r.tracing = False                                          # tracing off: the trace can't be required
+    assert result(r, "quote_saved_as_enquiry").passed
+    assert not result(run(priced()), "quote_saved_as_enquiry").passed       # no enquiry at all
+
+
+def test_booking_result():
+    from evaluation.assertions import booking_result
+    ok = run(priced())
+    ok.booking = {"status": "confirmed"}
+    assert booking_result(ok, {"expect": "confirmed"}).passed
+    failed = run(priced())
+    failed.booking = {"status": "payment_failed", "enquiry_kind": "booking_failed", "next_steps": ["retry"]}
+    assert booking_result(failed, {"expect": "payment_failed"}).passed
+    failed.booking["enquiry_kind"] = None                       # failure must leave a way forward
+    assert not booking_result(failed, {"expect": "payment_failed"}).passed
+    assert booking_result(run(priced()), None) is None
+
+
+def test_enquiry_private():
+    from evaluation.assertions import enquiry_private
+    r = run(priced())
+    r.access = {"public": 405, "staff": 401}
+    assert enquiry_private(r).passed
+    r.access = {"public": 200, "staff": 401}
+    assert not enquiry_private(r).passed
+
+
+def test_judge_verdict_unavailable_is_not_counted():
+    from evaluation.assertions import judge_verdict
+    r = run(turn())
+    r.judge = {"passed": None, "reason": "judge unavailable"}
+    assert judge_verdict(r) is None
+    r.judge = {"passed": False, "reason": "promised a free stay"}
+    assert not judge_verdict(r).passed
+
+
+def test_every_coverage_tag_has_a_case():
+    from evaluation.cases import COVERAGE_TAGS, load_cases
+    cases = load_cases()
+    missing = [t for t in COVERAGE_TAGS if not any(t in c.all_tags for c in cases)]
+    assert not missing, missing
+    assert len(cases) >= 40
+
+
+def test_judge_uses_the_rubric_and_reports_unavailable():
+    from evaluation.judge import Verdict, judge, transcript
+    from tests.unit.test_graph import FakeModel
+    turns = [{"message": "Hi", "response": "Hello, I'm Mira.", "ui": [{"type": "specialist_notice", "reason": "handoff",
+                                                                     "message": "A specialist will help"}]}]
+    assert "specialist notice (handoff)" in transcript(turns)
+    out = judge("Introduces itself.", turns, model=FakeModel(Verdict=[Verdict(passed=True, reason="It does.")]))
+    assert out == {"passed": True, "reason": "It does."}
+    down = judge("Introduces itself.", turns, model=FakeModel())
+    assert down["passed"] is None and "unavailable" in down["reason"]
+
+
+def test_welcome_back_check():
+    from evaluation.assertions import welcome_back
+    ui = [{"type": "welcome_back", "tour_title": "X", "quote_id": "new"}]
+    r = run(turn())
+    r.welcome = {"http": 200, "status": "ok", "quote_id": "new", "old_quote_id": "old", "price_usd": 315,
+                 "engine_price_usd": 315, "ui": ui, "message": "Welcome back"}
+    assert welcome_back(r, {"expect": "ok"}).passed
+    r.welcome["price_usd"] = 300                                  # not what the engine says today
+    assert not welcome_back(r, {"expect": "ok"}).passed
+    r.welcome = {"http": 200, "status": "needs_specialist", "quote_id": None, "old_price_usd": 315,
+                 "ui": [{**ui[0], "quote_id": None}], "message": "That price (USD 315) is no longer valid."}
+    assert not welcome_back(r, {"expect": "needs_specialist"}).passed      # repeats the old price
+    r.welcome["message"] = "That price is no longer valid."
+    assert welcome_back(r, {"expect": "needs_specialist"}).passed
+    assert welcome_back(r, None) is None
+
+
+def test_content_approval_checks():
+    from evaluation.assertions import content_approval
+    r = run(turn(response="Hello, I'm Mira."))
+    r.content = {"title": "Ella Railway", "traveller_publish": 401, "staff_publish": 403, "staff_status": "draft"}
+    names = {c.name: c.passed for c in content_approval(r, {"state": "draft", "roles": True})}
+    assert names == {"only_approver_publishes": True, "draft_never_shown": True}
+    r.content["staff_publish"] = 200                                   # staff could publish: fail
+    assert not content_approval(r, {"state": "draft", "roles": True})[0].passed
+    shown = run(turn(ui=[{"type": "tour_card", "title": "Ella Railway"}]))
+    shown.content = {"title": "Ella Railway"}
+    assert not content_approval(shown, {"state": "draft"})[0].passed
+    live = run(turn(retrieved=["T18"], cited=["T18"]))
+    live.content = {"title": "X", "doc_id": "T18"}
+    assert content_approval(live, {"state": "published"})[0].passed
+    assert content_approval(run(turn()), None) == []

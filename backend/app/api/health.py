@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request
 
 from app.core.config import get_settings
 from app.db.session import check_database
+from app.llm.client import llm_configured, provider
 
 router = APIRouter(tags=["health"])
 
@@ -25,6 +26,7 @@ def health(request: Request) -> dict:
         "data_issues": len(dataset.issues) if dataset else None,
         "database": "ok" if check_database() else "unavailable",
         "tracing": "enabled" if settings.tracing_enabled else "disabled",
-        "llm_configured": settings.gemini_api_key is not None,
+        "llm_configured": llm_configured(),
+        "llm_provider": provider(),
         "index": _index_status(getattr(request.app.state, "retriever", None)),
     }

@@ -157,6 +157,8 @@ class Booking(Base):
                                                 index=True, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     payment_ref: Mapped[str | None] = mapped_column(String(64))      # mock provider reference
+    card_brand: Mapped[str | None] = mapped_column(String(20))       # never the number: card type ...
+    card_last4: Mapped[str | None] = mapped_column(String(4))        # ... and last four digits only
     created_at: Mapped[datetime] = _created()
 
 
@@ -246,6 +248,12 @@ class Media(Base):
     tag: Mapped[str] = mapped_column(String(40), index=True, nullable=False)     # e.g. "ella"
     path: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)  # relative to media dir
     alt: Mapped[str] = mapped_column(String(300), nullable=False)
+    # open-licence photos must show who made them and under which licence
+    kind: Mapped[str] = mapped_column(String(20), default="illustration", nullable=False)   # photo | illustration
+    credit: Mapped[str | None] = mapped_column(String(200))
+    licence: Mapped[str | None] = mapped_column(String(40))
+    licence_url: Mapped[str | None] = mapped_column(String(300))
+    source: Mapped[str | None] = mapped_column(String(300))
     created_at: Mapped[datetime] = _created()
 
 

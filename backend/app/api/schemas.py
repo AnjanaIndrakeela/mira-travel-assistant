@@ -48,6 +48,7 @@ class ChatResponse(BaseModel):
 class ChatMessage(BaseModel):
     role: Literal["traveller", "mira"]
     text: str
+    ui: list[dict[str, Any]] = []         # Mira's cards for that reply (already validated)
 
 
 class ConversationOut(BaseModel):
@@ -97,12 +98,22 @@ class TourOut(BaseModel):
     last_updated: date | None = None
 
 
+class Card(_In):
+    """MOCK payment only: checked like a real card, never stored or logged (only the card type and
+    last four digits are kept). 4242 4242 4242 4242 succeeds, 4000 0000 0000 0002 fails."""
+
+    holder: str = Field(min_length=2, max_length=80, description="Name on the card")
+    brand: Literal["visa", "mastercard", "amex"]
+    number: str = Field(min_length=12, max_length=23, pattern=r"^[\d -]+$")
+    exp_month: int = Field(ge=1, le=12)
+    exp_year: int = Field(ge=0, le=2100, description="YY or YYYY")
+    cvc: str = Field(min_length=3, max_length=4, pattern=r"^\d+$")
+
+
 class BookingRequest(_In):
     quote_id: uuid.UUID
     contact: Contact
-    card_number: str = Field(min_length=12, max_length=23,
-                             description="MOCK payment only: never stored or logged. "
-                                         "4242 4242 4242 4242 succeeds, 4000 0000 0000 0002 fails")
+    card: Card
 
 
 class BookingOut(BaseModel):
@@ -113,6 +124,8 @@ class BookingOut(BaseModel):
     amount_charged_usd: int | None = None
     next_steps: list[Literal["retry", "payment_link", "enquiry_saved", "new_quote"]] = []
     enquiry_id: uuid.UUID | None = None
+    field: Literal["holder", "brand", "number", "expiry", "cvc"] | None = None   # the card detail to fix
+    card: str | None = None                       # "Visa ending 4242" on a confirmed booking
 
 
 class ErrorOut(BaseModel):

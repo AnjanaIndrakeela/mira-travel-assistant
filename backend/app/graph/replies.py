@@ -14,6 +14,13 @@ from app.graph.state import Slot
 UNKNOWN_INFO = ("I don't have that information in our travel content. I can pass your question "
                 "to a travel specialist, who will get back to you.")
 SPECIALIST_PRICE = "A travel specialist will confirm the price for these dates and get back to you."
+
+
+def service_price(service: str) -> str:
+    """A price asked for something with no rate in our sheet: never a guess."""
+    return (f"We don't have a set price for {service} on its own, so I won't guess one. I've passed "
+            "your request to a travel specialist, who will confirm the price and get back to you. "
+            "Our tours include transfers, if you'd like to look at those.")
 DECLINE = ("I can't change our prices or offer discounts in this chat, and I keep to our normal "
            "booking rules. I'm happy to give you a standard quote, though.")
 OFF_TOPIC = ("I can only help with holidays in Sri Lanka with Ceylon Compass Holidays. "
@@ -50,9 +57,12 @@ def party_words(adults: int, children: int, infants: int) -> str:
     return ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1]
 
 
-def ask_question(missing: list[Slot]) -> str:
+TRIP_LENGTH = "how many days you have"
+
+
+def ask_question(missing: list[Slot], extra: list[str] | None = None) -> str:
     """One combined question for everything still missing (it counts as one of the three)."""
-    words = [SLOT_WORDS[s] for s in missing]
+    words = [SLOT_WORDS[s] for s in missing] + list(extra or [])
     joined = words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
     return f"Could you tell me {joined}?"
 
