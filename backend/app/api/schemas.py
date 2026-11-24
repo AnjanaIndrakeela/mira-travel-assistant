@@ -46,7 +46,7 @@ class ChatResponse(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    role: Literal["traveller", "mira"]
+    role: Literal["traveller", "mira", "specialist"]     # specialist: a person, not Mira
     text: str
     ui: list[dict[str, Any]] = []         # Mira's cards for that reply (already validated)
 

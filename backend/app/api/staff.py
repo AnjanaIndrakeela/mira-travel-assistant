@@ -5,13 +5,15 @@
 only responses that carry cost, margin and GP%, plus the traveller's contact details.
 
 Notes are append-only (no edit or delete route; a database trigger refuses UPDATE/DELETE).
+Replies (POST .../replies) go to the traveller: into their chat as written, plus a mock email
+with a link to that chat (app.specialist). Replying moves a new or pending enquiry to contacted.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from functools import lru_cache
 from typing import Any, Literal, get_args
@@ -25,7 +27,8 @@ from app.api.deps import get_chat_graph, get_db
 from app.core.config import get_settings
 from app.core.security import (authenticate, current_user, end_session, login_limiter,
                                require_role, start_session)
-from app.db.models import Conversation, Enquiry, EnquiryNote, EnquiryStatus, Quote
+from app import specialist
+from app.db.models import Conversation, Enquiry, EnquiryNote, EnquiryStatus, Quote, SpecialistReply
 
 logger = logging.getLogger("mira.staff")
 router = APIRouter()
@@ -137,8 +140,24 @@ class StaffQuoteOut(BaseModel):
 
 
 class ChatLine(BaseModel):
-    role: Literal["traveller", "mira"]
+    role: Literal["traveller", "mira", "specialist"]
     text: str
+
+
+class ReplyRequest(_In):
+    body: str = Field(min_length=1, max_length=4000)
+
+
+class ReplyOut(BaseModel):
+    id: uuid.UUID
+    body: str
+    author: str
+    created_at: datetime
+    emailed_to: str | None          # the mock email: recorded, never delivered
+    email_text: str | None
+    emailed_at: datetime | None
+    in_chat: bool                   # shown in the traveller's chat (the enquiry has one)
+    status: str                     # the enquiry's status after the reply
 
 
 class EnquiryDetail(BaseModel):
@@ -157,6 +176,7 @@ class EnquiryDetail(BaseModel):
     conversation_id: uuid.UUID | None
     conversation: list[ChatLine]
     notes: list[NoteOut]
+    replies: list[ReplyOut] = []
 
 
 class NoteRequest(_In):
@@ -210,8 +230,13 @@ def _get_enquiry(db: Session, enquiry_id: uuid.UUID) -> Enquiry:
     return row
 
 
+def _messages(graph, conv: Conversation) -> list:
+    state = graph.get_state({"configurable": {"thread_id": conv.thread_id}}).values or {}
+    return list(state.get("messages", []))
+
+
 def _transcript(db: Session, graph, conversation_id: uuid.UUID | None) -> list[ChatLine]:
-    """The chat as the graph remembers it (in memory: empty after a server restart)."""
+    """The chat as the graph remembers it, with the specialists' replies where they were sent."""
     conv = db.get(Conversation, conversation_id) if conversation_id else None
     if conv is None:
         return []
@@ -219,12 +244,19 @@ def _transcript(db: Session, graph, conversation_id: uuid.UUID | None) -> list[C
         from langchain_core.messages import HumanMessage
 
         from app.api.chat import text_of
-        state = graph.get_state({"configurable": {"thread_id": conv.thread_id}}).values or {}
-        return [ChatLine(role="traveller" if isinstance(m, HumanMessage) else "mira", text=text_of(m))
-                for m in state.get("messages", [])]
+        lines = [ChatLine(role="traveller" if isinstance(m, HumanMessage) else "mira", text=text_of(m))
+                 for m in _messages(graph, conv)]
     except Exception as exc:  # noqa: BLE001
         logger.warning("no transcript: %s", exc.__class__.__name__)
-        return []
+        lines = []
+    replies = db.scalars(select(SpecialistReply).where(SpecialistReply.conversation_id == conv.id)).all()
+    return specialist.merge(lines, replies, lambda r: ChatLine(role="specialist", text=r.body))
+
+
+def _reply_out(r: SpecialistReply, status: str) -> ReplyOut:
+    return ReplyOut(id=r.id, body=r.body, author=r.author.email, created_at=r.created_at,
+                    emailed_to=r.emailed_to, email_text=r.email_text, emailed_at=r.emailed_at,
+                    in_chat=r.conversation_id is not None, status=status)
 
 
 @router.get("/staff/enquiries", response_model=EnquiryList, tags=["staff"])
@@ -273,7 +305,45 @@ def get_enquiry(enquiry_id: uuid.UUID, db: Session = Depends(get_db), graph=Depe
                if quote else None),
         trace_id=trace_id, trace_url=trace_url(trace_id),
         conversation_id=e.conversation_id, conversation=_transcript(db, graph, e.conversation_id),
-        notes=[NoteOut(id=n.id, body=n.body, author=n.author.email, created_at=n.created_at) for n in notes])
+        notes=[NoteOut(id=n.id, body=n.body, author=n.author.email, created_at=n.created_at) for n in notes],
+        replies=[_reply_out(r, e.status) for r in db.scalars(
+            select(SpecialistReply).where(SpecialistReply.enquiry_id == e.id).order_by(SpecialistReply.created_at))])
+
+
+@router.post("/staff/enquiries/{enquiry_id}/replies", response_model=ReplyOut, status_code=201, tags=["staff"])
+def reply(enquiry_id: uuid.UUID, req: ReplyRequest, db: Session = Depends(get_db),
+          graph=Depends(get_chat_graph), user=Depends(require_role("staff"))) -> ReplyOut:
+    """The specialist's reply: into the traveller's chat exactly as written, a mock email with a
+    link to that chat, and the enquiry moves to contacted (never back from confirmed or closed)."""
+    e = _get_enquiry(db, enquiry_id)
+    conv = db.get(Conversation, e.conversation_id) if e.conversation_id else None
+    email = (e.contact or {}).get("email") or None
+    if conv is None and not email:
+        raise HTTPException(409, "This enquiry has no chat and no email, so there is no way to reach the traveller.")
+    try:
+        after = len(_messages(graph, conv)) if conv else 0
+    except Exception as exc:  # noqa: BLE001  (chat memory unavailable: put the reply at the end)
+        logger.warning("chat length unknown: %s", exc.__class__.__name__)
+        after = 10_000
+    link = specialist.chat_link(conv.id) if conv else None
+    r = SpecialistReply(enquiry_id=e.id, conversation_id=conv.id if conv else None, author_id=user.id,
+                        body=req.body, after_message=after)
+    if email:
+        r.emailed_to, r.emailed_at = email, datetime.now(tz=timezone.utc)
+        r.email_text = specialist.mock_email((e.contact or {}).get("name"), link)
+    db.add(r)
+    sent = "in the chat" if conv else "by email only (no chat)"
+    db.add(EnquiryNote(enquiry_id=e.id, author_id=user.id,
+                       body=f"Replied to the traveller {sent}" + (" and recorded a mock email." if email else ".")))
+    if e.status in ("new", "pending"):
+        db.add(EnquiryNote(enquiry_id=e.id, author_id=user.id,
+                           body=f"Status changed from {e.status} to contacted (specialist replied)."))
+        e.status = "contacted"
+    db.flush()
+    db.commit()
+    if email:
+        specialist.record_mock_email(e.id)
+    return _reply_out(r, e.status)
 
 
 @router.post("/staff/enquiries/{enquiry_id}/notes", response_model=NoteOut, status_code=201, tags=["staff"])

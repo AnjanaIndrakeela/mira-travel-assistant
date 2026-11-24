@@ -14,6 +14,7 @@ SAFE = RouterDecision(intent=Intent.HANDOFF, needs_retrieval=False)
 @pytest.fixture
 def use_settings(monkeypatch):
     def apply(**kw):
+        kw.setdefault("llm_provider", "auto")      # not whatever LLM_PROVIDER the machine has
         s = Settings(_env_file=None, **kw)
         monkeypatch.setattr(client, "get_settings", lambda: s)
         client.get_chat_model.cache_clear()

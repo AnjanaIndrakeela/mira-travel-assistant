@@ -206,6 +206,37 @@ class EnquiryNote(Base):
     author: Mapped[User] = relationship()
 
 
+class SpecialistReply(Base):
+    """A specialist's reply to the traveller (app.specialist): shown in their chat as written,
+    never sent to the LLM. The mock email is recorded here (to whom, when, its text); nothing is
+    delivered. Append-only, like notes: a database trigger refuses UPDATE and DELETE."""
+
+    __tablename__ = "specialist_replies"
+
+    id: Mapped[uuid.UUID] = _id()
+    enquiry_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("enquiries.id", ondelete="RESTRICT"),
+                                                  index=True, nullable=False)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), index=True)
+    author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    after_message: Mapped[int] = mapped_column(Integer, default=0, nullable=False)   # place in the chat
+    emailed_to: Mapped[str | None] = mapped_column(String(254))          # mock email: never delivered
+    email_text: Mapped[str | None] = mapped_column(Text)
+    emailed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _created()
+
+    author: Mapped[User] = relationship()
+
+
+event.listen(SpecialistReply.__table__, "after_create", DDL("""
+CREATE OR REPLACE FUNCTION specialist_replies_append_only() RETURNS trigger AS $$
+BEGIN RAISE EXCEPTION 'specialist_replies is append-only'; END $$ LANGUAGE plpgsql;
+CREATE TRIGGER specialist_replies_append_only BEFORE UPDATE OR DELETE ON specialist_replies
+FOR EACH ROW EXECUTE FUNCTION specialist_replies_append_only();
+""").execute_if(dialect="postgresql"))
+
+
 event.listen(EnquiryNote.__table__, "after_create", DDL("""
 CREATE OR REPLACE FUNCTION enquiry_notes_append_only() RETURNS trigger AS $$
 BEGIN RAISE EXCEPTION 'enquiry_notes is append-only'; END $$ LANGUAGE plpgsql;

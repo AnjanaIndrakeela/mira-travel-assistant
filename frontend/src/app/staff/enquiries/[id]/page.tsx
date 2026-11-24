@@ -28,6 +28,7 @@ export default function EnquiryPage() {
   const [e, setE] = useState<EnquiryDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [reply, setReply] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -61,6 +62,11 @@ export default function EnquiryPage() {
   async function addNote(ev: React.FormEvent) {
     ev.preventDefault();
     if (await act(() => staffApi.addNote(id, note.trim()))) setNote("");
+  }
+
+  async function sendReply(ev: React.FormEvent) {
+    ev.preventDefault();
+    if (await act(() => staffApi.reply(id, reply.trim()))) setReply("");
   }
 
   if (error) return <p role="alert" className="text-brand-sm text-accent-coral">{error}</p>;
@@ -187,6 +193,67 @@ export default function EnquiryPage() {
         </Panel>
       )}
 
+      <Panel
+        title="Reply to the traveller"
+        aside={<span className="text-brand-xs text-muted">Sent as written · can&apos;t be edited</span>}
+      >
+        {(() => {
+          const reachable = Boolean(e.conversation_id || e.contact?.email);
+          const how = [
+            e.conversation_id && "in their chat",
+            e.contact?.email && `by email to ${e.contact.email} (mock: recorded, not delivered)`,
+          ].filter(Boolean).join(" and ");
+          return (
+            <>
+              {e.replies.length > 0 && (
+                <ol className="mb-3 flex flex-col gap-2">
+                  {e.replies.map((r) => (
+                    <li key={r.id} className="rounded-input border-2 border-accent-teal/40 p-2.5">
+                      <p className="whitespace-pre-wrap text-brand-sm">{r.body}</p>
+                      <p className="mt-1 text-brand-xs text-muted">
+                        {r.author} · {when(r.created_at)} · {r.in_chat ? "in the chat" : "not in a chat"}
+                        {r.emailed_to ? ` · email sent (mock) to ${r.emailed_to}` : " · no email on file"}
+                      </p>
+                      {r.email_text && (
+                        <details className="mt-1 text-brand-xs">
+                          <summary className="cursor-pointer font-semibold">The email</summary>
+                          <p className="mt-1 whitespace-pre-wrap rounded-input bg-[#F7F7F5] p-2">{r.email_text}</p>
+                        </details>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {reachable ? (
+                <form onSubmit={sendReply} className="flex flex-col gap-2">
+                  <label className="flex flex-col gap-1 text-brand-sm">
+                    <span className="font-semibold">Your reply</span>
+                    <span className="text-brand-xs text-muted">
+                      The traveller sees it {how}. Mira doesn&apos;t change it. A new or pending enquiry becomes contacted.
+                    </span>
+                    <textarea
+                      value={reply}
+                      onChange={(ev) => setReply(ev.target.value)}
+                      maxLength={4000}
+                      rows={4}
+                      required
+                      className="rounded-input border border-line px-3 py-2 text-brand-md outline-none focus:border-brand-orange"
+                    />
+                  </label>
+                  <div>
+                    <Pill type="submit" disabled={busy || !reply.trim()}>{busy ? "Sending…" : "Send reply"}</Pill>
+                  </div>
+                </form>
+              ) : (
+                <p className="text-brand-sm text-muted">
+                  No chat and no email on this enquiry, so there is no way to reach the traveller.
+                </p>
+              )}
+            </>
+          );
+        })()}
+      </Panel>
+
       <div className="grid gap-4 md:grid-cols-2">
         <Panel title="Notes" aside={<span className="text-brand-xs text-muted">Notes can&apos;t be edited</span>}>
           {e.notes.length === 0 ? (
@@ -227,8 +294,12 @@ export default function EnquiryPage() {
           ) : (
             <ol className="flex max-h-96 flex-col gap-2 overflow-y-auto">
               {e.conversation.map((m, i) => (
-                <li key={i} className={`rounded-input p-2.5 text-brand-sm ${m.role === "traveller" ? "ml-6 bg-brand-orange/10" : "mr-6 bg-[#F7F7F5]"}`}>
-                  <span className="block text-brand-xs font-semibold text-muted">{m.role === "traveller" ? "Traveller" : "Mira"}</span>
+                <li key={i} className={`rounded-input p-2.5 text-brand-sm ${
+                  m.role === "traveller" ? "ml-6 bg-brand-orange/10"
+                    : m.role === "specialist" ? "mr-6 border-2 border-accent-teal/40" : "mr-6 bg-[#F7F7F5]"}`}>
+                  <span className="block text-brand-xs font-semibold text-muted">
+                    {m.role === "traveller" ? "Traveller" : m.role === "specialist" ? "Specialist" : "Mira"}
+                  </span>
                   <span className="whitespace-pre-wrap">{m.text}</span>
                 </li>
               ))}

@@ -6,7 +6,33 @@ import { ReplySkeleton, Stages } from "./Progress";
 
 export type ChatItem =
   | { id: string; role: "traveller"; text: string }
-  | { id: string; role: "mira"; text: string; ui?: unknown[] };
+  | { id: string; role: "mira"; text: string; ui?: unknown[] }
+  | { id: string; role: "specialist"; text: string };
+
+/** A reply from a person on the team: shown exactly as written, and clearly not from Mira. */
+export function SpecialistMessage({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <span
+        aria-hidden
+        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-teal text-brand-white"
+      >
+        <svg viewBox="0 0 16 16" className="h-4 w-4" fill="currentColor">
+          <circle cx="8" cy="5" r="3" />
+          <path d="M2 14.5c0-3 2.7-5 6-5s6 2 6 5z" />
+        </svg>
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="mb-1 text-brand-xs font-semibold text-muted">
+          Travel specialist · {brand.name}
+        </p>
+        <div className="w-fit max-w-full whitespace-pre-wrap break-words rounded-card rounded-tl-sm border-2 border-accent-teal bg-surface px-4 py-2.5 text-brand-md sm:max-w-[85%] lg:max-w-[46rem]">
+          {text}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function UserMessage({ text }: { text: string }) {
   return (
@@ -78,6 +104,8 @@ export function MessageList({ items, thinking, step, stage, send }: {
         <li key={m.id} className="reveal">
           {m.role === "traveller" ? (
             <UserMessage text={m.text} />
+          ) : m.role === "specialist" ? (
+            <SpecialistMessage text={m.text} />
           ) : (
             <AssistantMessage text={m.text} ui={m.ui} actions={{ send, busy: thinking, latest: m.id === lastMira }} />
           )}

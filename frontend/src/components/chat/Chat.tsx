@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Header } from "@/components/Header";
-import { ApiError, FIRST_STEP, ids, loadHistory, loadWelcome, STEP_LABELS, streamChat } from "@/lib/api";
+import {
+  ApiError, FIRST_STEP, type HistoryMessage, ids, loadHistory, loadWelcome, STEP_LABELS, streamChat,
+} from "@/lib/api";
 import { brand } from "@/lib/brand";
 
 import { Composer } from "./Composer";
@@ -24,6 +26,12 @@ type Failure = { message: string; retryable: boolean; text: string };
 let counter = 0;
 const nextId = () => `m${Date.now().toString(36)}${(counter++).toString(36)}`;
 
+/** A saved message as a chat item: Mira's replies come back with their cards, a specialist's as written. */
+const toItem = (m: HistoryMessage): ChatItem =>
+  m.role === "mira"
+    ? { id: nextId(), role: "mira", text: m.text, ui: m.ui ?? [] }
+    : { id: nextId(), role: m.role, text: m.text };
+
 export function Chat() {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [thinking, setThinking] = useState(false);
@@ -42,18 +50,17 @@ export function Chat() {
   }, []);
 
   // Restore the current conversation after a reload (the server keeps it per conversation ID).
+  // A link from a specialist's email (?chat=<id>) opens that chat, then the address is tidied.
   useEffect(() => {
     let alive = true;
+    const linked = new URLSearchParams(window.location.search).get("chat");
+    if (linked) {
+      ids.openConversation(linked);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
     loadHistory().then(async (history) => {
       if (!alive) return;
-      // each reply comes back with its cards, so the chat looks as it did
-      setItems(
-        history.map((m): ChatItem =>
-          m.role === "mira"
-            ? { id: nextId(), role: "mira", text: m.text, ui: m.ui ?? [] }
-            : { id: nextId(), role: "traveller", text: m.text },
-        ),
-      );
+      setItems(history.map(toItem));
       if (history.length === 0) await welcomeBack(() => alive);
       if (alive) setLoaded(true);
     });
@@ -61,6 +68,22 @@ export function Chat() {
       alive = false;
     };
   }, [welcomeBack]);
+
+  // Back on this tab: if a specialist has replied since, show it (no need to reload the page).
+  useEffect(() => {
+    async function check() {
+      if (document.visibilityState !== "visible" || thinking || !ids.conversation()) return;
+      const history = await loadHistory();
+      const count = (list: { role: string }[]) => list.filter((m) => m.role === "specialist").length;
+      if (count(history) > count(items)) setItems(history.map(toItem));
+    }
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("focus", check);
+    return () => {
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("focus", check);
+    };
+  }, [items, thinking]);
 
   // Scroll to the very end of the page, so the newest item clears the sticky input bar.
   useEffect(() => {

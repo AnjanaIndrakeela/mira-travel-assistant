@@ -64,8 +64,22 @@ export type EnquiryDetail = {
   trace_id: string | null;
   trace_url: string | null;
   conversation_id: string | null;
-  conversation: { role: "traveller" | "mira"; text: string }[];
+  conversation: { role: "traveller" | "mira" | "specialist"; text: string }[];
   notes: Note[];
+  replies: Reply[];
+};
+
+/** A specialist's reply: in the traveller's chat as written, plus a mock email (never delivered). */
+export type Reply = {
+  id: string;
+  body: string;
+  author: string;
+  created_at: string;
+  emailed_to: string | null;
+  email_text: string | null;
+  emailed_at: string | null;
+  in_chat: boolean;
+  status: Status;
 };
 
 const send = (method: string, body?: unknown): RequestInit => ({
@@ -89,6 +103,8 @@ export const staffApi = {
   get: (id: string) => call<EnquiryDetail>(`/staff/enquiries/${encodeURIComponent(id)}`, send("GET"), 20_000),
   addNote: (id: string, body: string) =>
     call<Note>(`/staff/enquiries/${encodeURIComponent(id)}/notes`, send("POST", { body }), 15_000),
+  reply: (id: string, body: string) =>
+    call<Reply>(`/staff/enquiries/${encodeURIComponent(id)}/replies`, send("POST", { body }), 20_000),
   setStatus: (id: string, status: Status) =>
     call<EnquiryRow>(`/staff/enquiries/${encodeURIComponent(id)}/status`, send("PATCH", { status }), 15_000),
 };

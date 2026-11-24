@@ -50,6 +50,10 @@ export const ids = {
   visitor: () => read(KEYS.visitor),
   /** Start a new conversation; the visitor ID is kept (R2: returning visitors). */
   startOver: () => write(KEYS.conversation, null),
+  /** Open a chat from the link in a specialist's email (?chat=<id>), on any device. */
+  openConversation: (id: string) => {
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) write(KEYS.conversation, id);
+  },
   /** "Start fresh": forget this browser's visitor too, so nothing from last time is reused. */
   forgetVisitor: () => {
     write(KEYS.conversation, null);
@@ -103,8 +107,9 @@ export async function sendChat(message: string): Promise<ChatResponse> {
   return res;
 }
 
-/** One message of the saved chat; Mira's replies carry the cards shown with them. */
-export type HistoryMessage = { role: "traveller" | "mira"; text: string; ui?: UIComponent[] };
+/** One message of the saved chat; Mira's replies carry the cards shown with them. A
+ * "specialist" message is a person on the team, shown exactly as they wrote it. */
+export type HistoryMessage = { role: "traveller" | "mira" | "specialist"; text: string; ui?: UIComponent[] };
 
 /** The current conversation's messages (kept in the server's database), or [] if there is none. */
 export async function loadHistory(): Promise<HistoryMessage[]> {
