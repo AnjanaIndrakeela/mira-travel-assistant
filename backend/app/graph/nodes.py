@@ -430,7 +430,8 @@ class Nodes:
                 task += " Also answer their other question from the sources."
             return task
         if action == "match_tours":
-            task = "Suggest the tours listed in the facts, one line each on why they fit."
+            task = ("Suggest the tours listed in the facts as a bullet list: one bullet per tour, "
+                    "**Tour name**: length and places, then why it fits in a few words.")
             return task + (f" Then ask: {question}" if question else "")
         return "Answer their question from the sources only."
 
@@ -446,11 +447,11 @@ class Nodes:
             return " ".join(dict.fromkeys(r["message"] for r in state.get("refusals") or [])) \
                 or replies.SPECIALIST_PRICE
         if action == "match_tours":
-            head = (f"We don't have a tour called \"{state['unmatched_tour']}\" in our programme. "
-                    "I can pass your request to our team. Meanwhile, these tours could suit you:"
+            head = (f"We don't have a tour called \"{state['unmatched_tour']}\" in our programme, "
+                    "but I can pass your request to our team. Meanwhile, these tours could suit you:"
                     if state.get("unmatched_tour") else "These tours could suit you:")
-            return "\n".join(filter(None, [head, replies.tour_list(state.get("tour_cards") or []),
-                                           question]))
+            return "\n\n".join(filter(None, [head, replies.tour_list(state.get("tour_cards") or []),
+                                             question]))
         if action == "retrieve" and state.get("retrieved"):
             c = state["retrieved"][0]
             return f"Here is what our {c['title']} page says: {c['text'][:400].strip()} [1]"
@@ -476,7 +477,7 @@ class Nodes:
             parts.append("I can't share our internal costs.")
         if state.get("quote"):
             parts.append("Would you like to book, or change the dates or travellers?")
-        return " ".join(parts)
+        return "\n\n".join(parts)
 
     def respond(self, state: MiraState, config: RunnableConfig) -> dict:
         action = state["action"]

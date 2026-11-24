@@ -70,17 +70,19 @@ def ask_question(missing: list[Slot], extra: list[str] | None = None) -> str:
 def quote_text(q: dict) -> str:
     """The verified quote in fixed wording. Numbers come straight from the PublicQuote."""
     who = party_words(q["adults"], q["children"], q["infants"])
-    when = (f"on {nice_date(q['start_date'])}" if q["start_date"] == q["end_date"]
+    when = (nice_date(q['start_date']) if q["start_date"] == q["end_date"]
             else f"{nice_date(q['start_date'])} to {nice_date(q['end_date'])}")
-    lines = [f"Here is your price for the {q['tour_name']}, {when}, for {who}: "
-             f"{money(q['price_usd'])} in total."]
+    lines = [f"Here is your price for the **{q['tour_name']}**:", "",
+             f"- **When:** {when}",
+             f"- **Travellers:** {who}",
+             f"- **Total:** {money(q['price_usd'])}"]
     if q["balance_usd"]:
-        lines.append(f"To book, the deposit is {money(q['deposit_usd'])}, and the balance of "
-                     f"{money(q['balance_usd'])} is due by {nice_date(q['balance_due'])}.")
+        lines += [f"- **Deposit to book:** {money(q['deposit_usd'])}",
+                  f"- **Balance:** {money(q['balance_usd'])}, due by {nice_date(q['balance_due'])}"]
     else:
-        lines.append(f"The full {money(q['price_usd'])} is paid when you book.")
-    return " ".join(lines)
+        lines.append(f"- **Payment:** the full {money(q['price_usd'])} is paid when you book")
+    return "\n".join(lines)
 
 
 def tour_list(cards: list[dict]) -> str:
-    return "\n".join(f"- {c['name']} ({c['why']})" for c in cards)
+    return "\n".join(f"- **{c['name']}**: {c['why']}" for c in cards)
