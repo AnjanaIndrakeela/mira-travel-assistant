@@ -16,6 +16,7 @@ ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 COPY --from=build /app/package.json /app/package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 COPY --from=build /app/.next ./.next
+COPY --from=build /app/public ./public
 USER node
 EXPOSE 3010
 CMD ["npm", "start"]

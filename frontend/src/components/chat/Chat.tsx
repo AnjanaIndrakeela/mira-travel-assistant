@@ -142,7 +142,7 @@ export function Chat() {
           <AssistantMessage text={WELCOME} />
 
           {loaded && (items.length === 0 || onlyWelcome) && (
-            <div className="flex flex-col gap-2 pl-9.5" aria-label="Suggestions">
+            <div className="flex flex-col gap-2 pl-11.5" aria-label="Suggestions">
               <p className="text-brand-xs text-muted">Try one of these, or ask in your own words:</p>
               <div className="flex flex-wrap gap-2">
                 {STARTERS.map((s) => (
@@ -162,7 +162,7 @@ export function Chat() {
           <MessageList items={items} thinking={thinking} step={step} stage={stageOf(node)} send={(t) => ask(t)} />
 
           {onlyWelcome && !thinking && (
-            <div className="flex flex-wrap items-center gap-2 pl-9.5">
+            <div className="flex flex-wrap items-center gap-2 pl-11.5">
               <button
                 type="button"
                 onClick={startFresh}

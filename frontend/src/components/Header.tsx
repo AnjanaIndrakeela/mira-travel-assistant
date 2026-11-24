@@ -1,14 +1,16 @@
+import Image from "next/image";
+
 import { brand } from "@/lib/brand";
 
 type Props = { onStartOver?: () => void; showStartOver?: boolean; canStartOver?: boolean };
 
-/** Text logo (the dataset has no logo file) and a "New chat" action. Mobile first. */
+/** Mira's logo, the company name and a "New chat" action. Mobile first. */
 export function Header({ onStartOver, showStartOver = false, canStartOver = true }: Props) {
   return (
     <header className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-3xl items-center lg:max-w-6xl 2xl:max-w-7xl justify-between gap-3 px-4">
         <div className="flex min-w-0 items-center gap-2">
-          <span aria-hidden className="h-6 w-6 shrink-0 rounded-full bg-brand-orange" />
+          <Image src="/mira-avatar.png" alt="Mira" width={40} height={40} priority className="h-10 w-10 shrink-0 rounded-full" />
           <div className="min-w-0 leading-tight">
             <p className="truncate text-brand-sm font-bold">{brand.name}</p>
             <p className="text-brand-xs text-muted">Chat with {brand.assistantName}, your travel assistant</p>

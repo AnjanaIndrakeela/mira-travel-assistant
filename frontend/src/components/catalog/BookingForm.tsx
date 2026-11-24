@@ -7,7 +7,7 @@ import { BRANDS, brandInfo, type Brand, type CardField, checkCard, digitsOf, for
 import type { ComponentOf } from "@/lib/catalog-schema";
 
 import type { Actions } from "./registry";
-import { Card, Field, Pill } from "./ui";
+import { Card, Chip, Field, Icon, Pill } from "./ui";
 
 type Props = ComponentOf<"booking_form"> & { actions: Actions };
 
@@ -84,13 +84,14 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
 
   if (result?.status === "confirmed") {
     return (
-      <Card label="Booking confirmed" accent="leaf" wide>
-        <h3 className="text-brand-md font-semibold">Booking confirmed</h3>
-        <p className="text-brand-sm" role="status">{result.message}</p>
-        <p className="text-brand-xs text-muted">
-          {result.card ? `Paid with ${result.card}. ` : ""}
-          {result.payment_reference && `Reference ${result.payment_reference}`}
-        </p>
+      <Card label="Booking confirmed" accent="leaf" wide icon="check" title="Booking confirmed" subtitle="You're all set">
+        <p className="text-brand-sm leading-relaxed" role="status">{result.message}</p>
+        {(result.card || result.payment_reference) && (
+          <div className="flex flex-wrap gap-1.5">
+            {result.card && <Chip icon="card">Paid with {result.card}</Chip>}
+            {result.payment_reference && <Chip icon="tag">Ref {result.payment_reference}</Chip>}
+          </div>
+        )}
       </Card>
     );
   }
@@ -98,16 +99,15 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
   if (!open) {
     return (
       <div>
-        <Pill onClick={() => setOpen(true)}>Book this trip</Pill>
+        <Pill onClick={() => setOpen(true)} icon="arrow">Book this trip</Pill>
       </div>
     );
   }
 
   return (
-    <Card label="Book this trip" accent="sun" wide>
-      <h3 className="text-brand-md font-semibold">Book this trip</h3>
+    <Card label="Book this trip" accent="sun" wide icon="card" title="Book this trip" subtitle="Secure your dates in a few steps">
       {result && !result.field && (
-        <div role="alert" className="flex flex-col gap-2 rounded-input border border-accent-coral p-3 text-brand-sm">
+        <div role="alert" className="flex flex-col gap-2 rounded-lg border border-accent-coral/40 bg-accent-coral/[0.06] p-3 text-brand-sm">
           <p>{result.message}</p>
           {result.next_steps.includes("new_quote") && (
             <div>
@@ -119,14 +119,17 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
         </div>
       )}
       {error && (
-        <p role="alert" className="rounded-input border border-accent-coral p-3 text-brand-sm">
+        <p role="alert" className="rounded-lg border border-accent-coral/40 bg-accent-coral/[0.06] p-3 text-brand-sm">
           {error}
         </p>
       )}
       {result?.status !== "price_changed" && (
         <form onSubmit={submit} className="flex flex-col gap-3">
           <fieldset className="flex flex-col gap-3">
-            <legend className="mb-1 text-brand-xs font-semibold uppercase tracking-wide text-muted">Your details</legend>
+            <legend className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
+              <Icon name="user" className="h-3.5 w-3.5" />
+              Your details
+            </legend>
             {fields.includes("name") && (
               <Field label="Full name" name="name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} autoComplete="name" />
             )}
@@ -141,10 +144,14 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
           </fieldset>
 
           {askCard && (
-            <fieldset className="flex min-w-0 flex-col gap-3 rounded-input border border-line p-2.5 sm:p-3">
-              <legend className="px-1 text-brand-xs font-semibold uppercase tracking-wide text-muted">Card (demo payment)</legend>
-              <p className="rounded-input bg-accent-sun/15 px-3 py-2 text-brand-xs">
-                This is a <strong>mock payment</strong>: no money moves and the card is never stored. Use a test card:
+            <fieldset className="flex min-w-0 flex-col gap-3 rounded-lg border border-line/80 bg-ink/[0.02] p-2.5 sm:p-3">
+              <legend className="flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                <Icon name="card" className="h-3.5 w-3.5" />
+                Card (demo payment)
+              </legend>
+              <p className="flex gap-2 rounded-lg bg-accent-sun/15 px-3 py-2 text-brand-xs">
+                <Icon name="shield" className="mt-px h-3.5 w-3.5" />
+                <span>This is a <strong>mock payment</strong>: no money moves and the card is never stored. Use a test card:</span>
               </p>
               <div className="flex flex-wrap gap-1.5" aria-label="Test cards">
                 {TEST_CARDS.map((t) => (
@@ -152,7 +159,7 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
                     key={t.number}
                     type="button"
                     onClick={() => fillTestCard(t)}
-                    className="min-h-9 rounded-full border border-line px-3 text-brand-xs hover:border-brand-orange focus-visible:outline-2 focus-visible:outline-brand-orange"
+                    className="min-h-9 rounded-full border border-line bg-surface px-3 text-brand-xs font-medium shadow-sm hover:border-brand-orange focus-visible:outline-2 focus-visible:outline-brand-orange"
                   >
                     {t.label}
                   </button>
@@ -164,7 +171,7 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
                 maxLength={80} autoComplete="off" />
 
               <div role="radiogroup" aria-label="Card type" className="flex flex-col gap-1 text-brand-sm">
-                <span className="font-semibold">Card type</span>
+                <span className="font-medium text-ink/80">Card type</span>
                 <div className="grid grid-cols-[1fr_1.4fr_1fr] gap-1.5 sm:grid-cols-3">
                   {BRANDS.map((b) => (
                     <button
@@ -174,7 +181,7 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
                       aria-checked={brand === b.id}
                       aria-label={b.name}
                       onClick={() => { setBrand(b.id); setBrandTouched(true); setNumber((n) => formatNumber(n, b.id)); clear("brand"); clear("cvc"); }}
-                      className={`min-h-11 min-w-0 rounded-input border px-1 text-brand-xs font-semibold sm:px-2 sm:text-brand-sm ${brand === b.id ? "border-brand-orange bg-brand-orange/10" : "border-line"}`}
+                      className={`min-h-11 min-w-0 rounded-input border px-1 text-brand-xs font-semibold transition-all sm:px-2 sm:text-brand-sm ${brand === b.id ? "border-brand-orange bg-brand-orange/10 ring-4 ring-brand-orange/10" : "border-line bg-surface hover:border-ink/30"}`}
                     >
                       <span className="sm:hidden">{b.short}</span>
                       <span className="hidden sm:inline">{b.name}</span>
@@ -201,7 +208,7 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
           )}
 
           <div className="flex flex-wrap gap-2">
-            <Pill type="submit" disabled={sending}>
+            <Pill type="submit" icon="arrow" disabled={sending}>
               {sending ? "Booking…" : result ? "Try again" : "Pay deposit and book"}
             </Pill>
             <Pill variant="outline" onClick={() => setOpen(false)} disabled={sending}>

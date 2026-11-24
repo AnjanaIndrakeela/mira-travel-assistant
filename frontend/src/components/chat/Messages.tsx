@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 import { type Actions, UIBlocks } from "@/components/catalog/registry";
 import { brand } from "@/lib/brand";
 
@@ -15,9 +17,9 @@ export function SpecialistMessage({ text }: { text: string }) {
     <div className="flex items-start gap-2.5">
       <span
         aria-hidden
-        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-teal text-brand-white"
+        className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-teal text-brand-white"
       >
-        <svg viewBox="0 0 16 16" className="h-4 w-4" fill="currentColor">
+        <svg viewBox="0 0 16 16" className="h-5 w-5" fill="currentColor">
           <circle cx="8" cy="5" r="3" />
           <path d="M2 14.5c0-3 2.7-5 6-5s6 2 6 5z" />
         </svg>
@@ -44,14 +46,18 @@ export function UserMessage({ text }: { text: string }) {
   );
 }
 
+/** Mira's logo beside each of her messages. */
 function Avatar() {
   return (
-    <span
+    <Image
+      src="/mira-avatar.png"
+      alt=""
       aria-hidden
-      className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-orange text-brand-xs font-bold text-ink"
-    >
-      {brand.assistantName[0]}
-    </span>
+      width={36}
+      height={36}
+      priority
+      className="mt-0.5 h-9 w-9 shrink-0 rounded-full"
+    />
   );
 }
 
