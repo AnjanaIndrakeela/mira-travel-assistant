@@ -11,7 +11,7 @@ import { ACCENT_TEXT, Card, Chip, Icon, Pill } from "./ui";
 type Props = ComponentOf<"tour_card"> & { actions: Actions; showAction?: boolean };
 
 /** A published tour: facts and a reason only. Never a price (that comes from a quote). */
-export function TourCard({ tour_id, title, duration, start, highlights, why, accent, bookable, source, images, actions, showAction = true }: Props) {
+export function TourCard({ tour_id, title, duration, start, highlights, why, hotels, accent, bookable, source, images, actions, showAction = true }: Props) {
   const [main, ...more] = images;
   const from = start ? (start.startsWith("Your ") ? `y${start.slice(1)}` : start) : null;
   const chips = (
@@ -91,6 +91,23 @@ export function TourCard({ tour_id, title, duration, start, highlights, why, acc
             </li>
           ))}
         </ul>
+      )}
+
+      {hotels.length > 0 && (
+        <div className="flex flex-col gap-1.5 rounded-lg bg-line/40 px-3 py-2">
+          <p className="flex items-center gap-1.5 text-brand-xs font-semibold uppercase tracking-wide text-muted">
+            <Icon name="bed" className="h-4 w-4" />
+            Where you&apos;ll stay
+          </p>
+          <ul className="flex flex-col gap-1 text-brand-sm">
+            {hotels.map((h) => (
+              <li key={h} className="flex gap-2">
+                <span aria-hidden className="mt-2 h-1 w-1 shrink-0 rounded-full bg-current opacity-60" />
+                <span className="min-w-0">{h}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-line/70 pt-3">

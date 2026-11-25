@@ -40,6 +40,8 @@ from app.guards.output_guard import amounts_in, check_output
 from app.llm.client import text_of
 from app.llm.schemas import GroundedAnswer, TripDetails
 from app.llm.structured import invoke_structured
+from app.graph.trip_planner import TripPlanner, plan_key
+from app.graph.trip_planner import TripPlanner, plan_key
 from app.llm.tasks import ANALYSIS_FALLBACK, analyse_turn
 from app.pricing import QuoteRequest, calculate_quote
 from app.ui.build import choose_components
@@ -156,7 +158,8 @@ class Nodes:
     # 17.3 ------------------------------------------------------------------------------
     def load_visitor(self, state: MiraState) -> dict:
         """First turn of a conversation only: start with what a returning visitor told us last
-        time (party, traveller type, interests), so Mira doesn't ask again (R2). The last quote
+        time (R2). Interests are reused; last time's party only presets the traveller picker:
+        Mira always asks who is travelling before it suggests a plan or a price. The last quote
         itself is re-priced by the welcome endpoint, never copied from the old row."""
         if state.get("is_returning") is not None:
             return {}
@@ -214,6 +217,11 @@ class Nodes:
             tid = product_match(t.interests or [], t.destinations or [], self.d.tours)
         if tid:
             out["selected_tour_id"] = tid
+        elif (state["intent"] in {"discovery", "custom_trip"} and not mention_now and not t.tour_mention
+              and (t.interests or t.destinations or t.days)):
+            # "10 days of beaches and wildlife, what do you suggest?" after a quote: a new trip,
+            # so the tour priced earlier is not re-priced for it
+            out["selected_tour_id"] = None
         elif (mention_now and state["intent"] in {"quote", "book", "custom_trip", "discovery"}
               and not is_place(mention_now, self.d.tours)):
             out["unmatched_tour"] = mention_now      # a tour we don't have (a place is not one)
@@ -268,6 +276,17 @@ class Nodes:
         return missing
 
     def route(self, state: MiraState) -> dict:
+        out = self._route(state)
+        # R2: a returning visitor confirms last time's party in one tap instead of typing it again
+        last = state.get("remembered_party")
+        if last and out.get("question") and "adults" in (out.get("missing") or []):
+            who = replies.party_words(last["adults"], len([a for a in last["child_ages"] if a >= 2]),
+                                      len([a for a in last["child_ages"] if a < 2]))
+            out["question"] += (f" Last time it was {who}; if that's still right, "
+                                "tap \"Use these travellers\" below.")
+        return out
+
+    def _route(self, state: MiraState) -> dict:
         """Code decides the next step. Every question counts toward the limit of 3."""
         intent = state["intent"]
         asked = state.get("questions_asked", 0)
@@ -378,6 +397,8 @@ class Nodes:
     # 8.9 -------------------------------------------------------------------------------
     def _suggest(self, state: MiraState) -> list[dict]:
         interests = list(state.get("interests") or [])
+        if not interests and not state.get("destinations"):
+            interests = list(state.get("remembered_interests") or [])     # R2: last visit's, as a hint
         if state.get("unmatched_tour"):
             interests.append(state["unmatched_tour"])      # "Adam's Peak climb" -> hill country
         return suggest_tours(self.d.tours, interests=interests,
@@ -386,7 +407,28 @@ class Nodes:
 
     def match_tours(self, state: MiraState) -> dict:
         cards = self._suggest(state)
-        return {"tour_cards": cards, "suggested_tour_ids": [c["tour_id"] for c in cards]}
+        # show the best match only; the runners-up stay in suggested_tour_ids so a price can fall
+        # back to the next one when the best has no rate for those dates
+        return {"tour_cards": cards[:1], "suggested_tour_ids": [c["tour_id"] for c in cards]}
+
+    def plan_trip(self, state: MiraState) -> dict:
+        """The planner agent: a day-by-day plan for THIS trip, from our published pages (RAG).
+        Written once per set of trip details and kept while they stay the same. No price: it is
+        a draft our team confirms. If it can't be written safely, the best tour card stays."""
+        if state.get("unmatched_tour") or not (state.get("tour_cards") or state.get("assumed_tour")):
+            return {}
+        key = plan_key(state)
+        if state.get("trip_plan") and state.get("trip_plan_key") == key:
+            return {"plan_shown": True}
+        try:
+            retriever = self.d.get_retriever()
+        except Exception:  # noqa: BLE001  (no index: plan from the pages alone)
+            retriever = None
+        plan = TripPlanner(self.d.content, self.d.tours, retriever=retriever,
+                           model=self._models("strong")).plan(state)
+        if plan is None:
+            return {"trip_plan": None, "trip_plan_key": None}
+        return {"trip_plan": plan, "trip_plan_key": key, "plan_shown": True}
 
     # 8.10 ------------------------------------------------------------------------------
     def _facts(self, state: MiraState) -> tuple[str, list[str]]:
@@ -408,20 +450,32 @@ class Nodes:
             facts.append("VERIFIED QUOTE (repeat exactly): " + replies.quote_text(q))
             if state.get("assumed_tour"):
                 facts.append("They didn't name a tour, so this is the tour that fits their trip best. "
-                             "Say so, and offer to price one of the other matches shown.")
+                             "Say so. Do not list or mention other tours.")
         for msg in dict.fromkeys(r["message"] for r in state.get("refusals") or []):
             facts.append(f"No price can be given: {msg}")
         if name := state.get("unmatched_tour"):
             facts.append(f'They asked about "{name}". We have no such tour in our catalogue. Say so '
                          "plainly, invent nothing about it, and offer to pass the request to our team.")
-        if cards := state.get("tour_cards"):
-            facts.append("Tours from our catalogue that fit:\n" + replies.tour_list(cards))
+        if state.get("plan_shown") and (plan := state.get("trip_plan")):
+            facts.append(f'I wrote a custom {len(plan["days"])}-day plan for this trip, "{plan["title"]}", '
+                         "from our published pages; it is shown below day by day. Say so in one line "
+                         "and don't repeat the days. It is a draft: our team will confirm and price it. "
+                         "Never give it a price.")
+            if cards := state.get("tour_cards"):
+                facts.append("The closest published tour, which can be priced and booked now:\n"
+                             + replies.tour_list(cards))
+        elif cards := state.get("tour_cards"):
+            facts.append("The tour from our catalogue that fits best (suggest only this one):\n"
+                         + replies.tour_list(cards))
         flags = state.get("input_flags") or []
         if "discount_request" in flags:
             facts.append("They asked for a discount: we can't offer discounts in this chat.")
         if "cost_request" in flags:
             facts.append("They asked about internal costs or margins: we never share those.")
-        if state["action"] == "match_tours" and not state.get("question") and state.get("missing"):
+        if state["action"] == "match_tours" and state.get("plan_shown") and state.get("trip_plan"):
+            facts.append("Don't ask a question. End by saying the published tour can be priced instantly "
+                         "if they'd like it; the custom plan is priced by our team.")
+        elif state["action"] == "match_tours" and not state.get("question") and state.get("missing"):
             facts.append("Don't ask a question. Say you can price any of these once they share "
                          + ", ".join(replies.SLOT_WORDS[s] for s in state["missing"]) + ".")
         sources = [f"[{i}] {c['title']} – {c['section']}"
@@ -462,8 +516,12 @@ class Nodes:
                 or replies.SPECIALIST_PRICE
         if action == "match_tours":
             head = (f"We don't have a tour called \"{state['unmatched_tour']}\" in our programme, "
-                    "but I can pass your request to our team. Meanwhile, these tours could suit you:"
-                    if state.get("unmatched_tour") else "These tours could suit you:")
+                    "but I can pass your request to our team. Meanwhile, this tour could suit you:"
+                    if state.get("unmatched_tour") else "This tour fits your trip best:")
+            if state.get("plan_shown") and (plan := state.get("trip_plan")) and not state.get("unmatched_tour"):
+                head = (f"I've drafted a {len(plan['days'])}-day plan for your trip: {plan['title']}. "
+                        "It's below, day by day. Our team will confirm it and send you a price. "
+                        "If you'd rather book now, this published tour is the closest match:")
             return "\n\n".join(filter(None, [head, replies.tour_list(state.get("tour_cards") or []),
                                              question]))
         if action == "retrieve" and state.get("retrieved"):
@@ -476,14 +534,25 @@ class Nodes:
         parts = [self._fallback(state)]
         if state.get("assumed_tour"):
             name = self.by_id[state["selected_tour_id"]].name if state["selected_tour_id"] in self.by_id else None
+            planned = bool(state.get("plan_shown") and state.get("trip_plan"))
+            if planned:
+                plan = state["trip_plan"]
+                parts.insert(0, f"I've drafted a {len(plan['days'])}-day plan for your trip: {plan['title']}. "
+                             "It's below; our team will confirm it and send you a price.")
             if state.get("quote"):
-                parts.insert(0, f"The {name} fits your trip best, so I've priced it." if name
+                parts.insert(int(planned),
+                             f"To book now, the {name} is the closest published tour; I've priced it."
+                             if name and planned else
+                             f"The {name} fits your trip best, so I've priced it." if name
                              else "I've priced the tour that fits your trip best.")
-                if len(state.get("suggested_tour_ids") or []) > 1:
-                    parts.append("Other tours that could suit you are below; I can price any of them too.")
+            elif planned:
+                # no instant price for the closest tour either: one line, not the refusal as well
+                parts[1:] = [f"Under it is the closest published tour{f', the {name}' if name else ''}. "
+                             "It has no instant price for those dates, so our team will price both and "
+                             "get back to you."]
             elif state.get("suggested_tour_ids"):
-                parts.append("Here are the tours that fit your trip; a specialist can confirm a price "
-                             "for any of them.")
+                parts.append("This is the tour that fits your trip best; a specialist can confirm a price "
+                             "for it.")
         flags = state.get("input_flags") or []
         if "discount_request" in flags:
             parts.append("I can't offer discounts in this chat.")

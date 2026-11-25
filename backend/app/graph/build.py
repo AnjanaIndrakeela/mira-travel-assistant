@@ -32,22 +32,26 @@ def _after_route(state: MiraState) -> str:
 
 
 def _after_price(state: MiraState) -> str:
-    return "retrieve" if state.get("needs_retrieval") and state["intent"] == "tour_info" else "respond"
+    if state.get("needs_retrieval") and state["intent"] == "tour_info":
+        return "retrieve"
+    # no tour named: the planner agent writes a plan for this trip; the closest tour is priced too
+    return "plan_trip" if state.get("assumed_tour") else "respond"
 
 
 def build_graph(deps: Deps | None = None, checkpointer=None):
     n = Nodes(deps or Deps.default())
     g = StateGraph(MiraState)
     for name in ("load_visitor", "guard", "discovery", "route", "retrieve", "price", "match_tours",
-                 "respond", "build_ui", "persist"):
+                 "plan_trip", "respond", "build_ui", "persist"):
         g.add_node(name, getattr(n, name))
     g.add_edge(START, "load_visitor")
     g.add_edge("load_visitor", "guard")
     g.add_conditional_edges("guard", _after_guard, ["discovery", "route"])
     g.add_edge("discovery", "route")
     g.add_conditional_edges("route", _after_route, ["price", "match_tours", "retrieve", "respond"])
-    g.add_conditional_edges("price", _after_price, ["retrieve", "respond"])
-    g.add_edge("match_tours", "respond")
+    g.add_conditional_edges("price", _after_price, ["retrieve", "plan_trip", "respond"])
+    g.add_edge("match_tours", "plan_trip")
+    g.add_edge("plan_trip", "respond")
     g.add_edge("retrieve", "respond")
     g.add_edge("respond", "persist")
     g.add_edge("persist", "build_ui")

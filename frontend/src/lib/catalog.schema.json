@@ -220,6 +220,36 @@
       "title": "PhotoGallery",
       "type": "object"
     },
+    "PlanDay": {
+      "additionalProperties": false,
+      "properties": {
+        "day": {
+          "maximum": 14,
+          "minimum": 1,
+          "title": "Day",
+          "type": "integer"
+        },
+        "description": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "day",
+        "title",
+        "description"
+      ],
+      "title": "PlanDay",
+      "type": "object"
+    },
     "PriceBreakdown": {
       "additionalProperties": false,
       "description": "Quote ID only: the browser fetches the verified public quote from /quotes/{id}.",
@@ -423,6 +453,17 @@
           "title": "Highlights",
           "type": "array"
         },
+        "hotels": {
+          "description": "Where the tour stays, from its published page",
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Hotels",
+          "type": "array"
+        },
         "images": {
           "items": {
             "$ref": "#/$defs/Image"
@@ -530,6 +571,62 @@
       "title": "TravellerPicker",
       "type": "object"
     },
+    "TripPlan": {
+      "additionalProperties": false,
+      "description": "A custom plan the planner agent wrote for this traveller from our published content (RAG).\nA draft: no price; the team confirms and prices it from the saved enquiry.",
+      "properties": {
+        "days": {
+          "items": {
+            "$ref": "#/$defs/PlanDay"
+          },
+          "maxItems": 14,
+          "minItems": 1,
+          "title": "Days",
+          "type": "array"
+        },
+        "images": {
+          "items": {
+            "$ref": "#/$defs/Image"
+          },
+          "maxItems": 3,
+          "title": "Images",
+          "type": "array"
+        },
+        "overview": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "title": "Overview",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "maxItems": 8,
+          "title": "Sources",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "trip_plan",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "overview",
+        "days"
+      ],
+      "title": "TripPlan",
+      "type": "object"
+    },
     "WelcomeBack": {
       "additionalProperties": false,
       "description": "R2: greeting for a returning visitor; the last quote is re-priced, shown by quote_id.",
@@ -577,6 +674,7 @@
       "specialist_notice": "#/$defs/SpecialistNotice",
       "tour_card": "#/$defs/TourCard",
       "traveller_picker": "#/$defs/TravellerPicker",
+      "trip_plan": "#/$defs/TripPlan",
       "welcome_back": "#/$defs/WelcomeBack"
     },
     "propertyName": "type"
@@ -608,6 +706,9 @@
     },
     {
       "$ref": "#/$defs/PhotoGallery"
+    },
+    {
+      "$ref": "#/$defs/TripPlan"
     }
   ]
 }

@@ -31,10 +31,10 @@ def card(**over):
 
 # ---- 11.2 / 11.3 catalog ----------------------------------------------------------------
 
-def test_catalog_has_the_nine_components():
+def test_catalog_has_the_ten_components():
     assert set(COMPONENT_TYPES) == {"traveller_picker", "tour_card", "itinerary_day", "price_breakdown",
                                     "booking_form", "specialist_notice", "source_list", "welcome_back",
-                                    "photo_gallery"}
+                                    "photo_gallery", "trip_plan"}
     names = {s["properties"]["type"]["const"] for s in json_schema()["$defs"].values() if "type" in s.get("properties", {})}
     assert names == set(COMPONENT_TYPES)
 
@@ -175,6 +175,19 @@ def test_cards_and_days_never_carry_money(ds):
         days = itinerary_days(doc.id, content=ds.content)
         ui, rejected = validate_ui(([c] if c else []) + days, quote_id=None)
         assert not rejected, (doc.id, rejected)
+
+
+def test_tour_cards_show_where_the_tour_stays(ds):
+    def hotels(tid):
+        return tour_card(tid, content=ds.content, rates=ds.rates)["hotels"]
+    # day-by-day stays, with their nights
+    assert hotels("T09") == ["Anuradhapura Heritage Lodge or similar (2 nights)", "Sigiriya Village or similar (2 nights)",
+                             "Hotel Suisse, Hotel Topaz or similar (2 nights)"]
+    # the page's own "Route and hotels" list
+    assert hotels("T12")[0] == "Negombo – Suriya Resort or similar" and len(hotels("T12")) == 9
+    # the front-matter list when the page has nothing else
+    assert hotels("T13") == ["Udawalawe Safari Camp", "Cinnamon Wild Yala"]
+    assert hotels("T01") == []                                    # a day tour: no hotel
 
 
 def test_draft_tour_never_becomes_a_card(ds):

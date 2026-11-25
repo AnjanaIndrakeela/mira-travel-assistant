@@ -79,8 +79,12 @@ def for_places(places: list[str], n: int = 3, *, offset: int = 0) -> list[dict]:
     return out
 
 
-def for_tour(doc: Any, n: int = 3) -> list[dict]:
-    places = [*(str(d) for d in doc.meta.get("destinations", [])), *places_in(doc.title)]
+def for_tour(doc: Any, n: int = 3, *, first: list[str] | tuple[str, ...] = ()) -> list[dict]:
+    """A tour's pictures. `first`: places to show before the rest of the route, such as the
+    stops a suggestion card names ("Visits Galle, Yala"), so the photos match the card's text."""
+    route = [*(str(d) for d in doc.meta.get("destinations", [])), *places_in(doc.title)]
+    on_route = {ALIASES.get(p, p) for p in route}
+    places = [*(p for p in first if ALIASES.get(p, p) in on_route), *route]
     if not places:
         places = places_in(doc.body[:1500])
     return for_places(places, n)

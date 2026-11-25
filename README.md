@@ -8,9 +8,9 @@ Conversational booking assistant for **Ceylon Compass Holidays**, a fictional Sr
 
 | # | Requirement | How Mira does it |
 |---|---|---|
-| 1 | Discover the trip (≤ 3 questions) | One LLM call per turn extracts the trip details; **code** decides what is still missing and asks one combined question at a time, at most 3 per conversation, before showing tours or a price. Trip type and traveller type are derived by code. |
-| 2 | Remember returning visitors | An anonymous visitor ID keeps the party, interests and last quote (no names or contact details). A new chat starts from what is known, and "welcome back" re-prices the last quote with today's rates. |
-| 3 | Generate the interface | Code picks components from a fixed catalog of 9. Every payload is validated on the server (Pydantic) and again in the browser (Zod). Styled from the dataset's brand pack; works at 375 px and on desktop. |
+| 1 | Discover the trip (≤ 3 questions) | One LLM call per turn extracts the trip details; **code** decides what is still missing and asks one combined question at a time, at most 3 per conversation, before showing tours or a price. Mira always knows who is travelling before it suggests or prices a plan. A planner gets the **one** tour that fits best (it must cover every kind of trip asked for and be near the length wanted); the runner-up tours are kept only so a price can fall back to the next one. Trip type and traveller type are derived by code. |
+| 2 | Remember returning visitors | An anonymous visitor ID keeps the party, interests and last quote (no names or contact details). A new chat reuses the interests. Last time's party is never priced silently: Mira asks the traveller to confirm it in one tap ("Last time it was 2 adults", picker preset), because a party can change between trips. "Welcome back" re-prices the last quote with today's rates. |
+| 3 | Generate the interface | Code picks components from a fixed catalog of 9. Every payload is validated on the server (Pydantic) and again in the browser (Zod). Styled from the dataset's brand pack; works at 375 px and on desktop. Tour cards show the places the card names in their photos and a "Where you'll stay" list taken from the tour's own page. |
 | 4 | Answer from content only | Hybrid retrieval (Gemini embeddings + BM25) over published content only. Answers cite their sources, which are shown as chips. If the content doesn't answer it, Mira says so and offers the team. |
 | 5 | Quote correct prices | A deterministic pricing engine reads the rate workbook (seasons, group size, child and single supplements, margin, deposit). The LLM never does arithmetic. Each quote stores cost, price and GP% for staff; travellers see only price and deposit. |
 | 6 | Missing or expired rates | The engine refuses instead of guessing. Mira says a specialist will confirm, and the enquiry is flagged for staff with the reason. |
@@ -194,6 +194,8 @@ docker compose exec -w / backend python -m evaluation.judge --calibrate
 - **A restored "Ask a specialist" card** shows its button again after a reload, even if the form was already sent.
 - **Tour matching is word-based.** A tour named in unusual words may not match, and Mira then suggests close tours instead of pricing at once.
 - **Retrieval is English only**, with an in-memory index rebuilt when the content changes.
+- **R2 asks to confirm the party.** The brief says a returning visitor is not asked again for what Mira knows. Mira still asks who is travelling, as a one-tap confirmation of last time's party, so it never prices for a party that has changed. Interests and the last quote are reused without asking.
+- **Bonus items not built.** There is no MCP server and no personalisation; model routing is by task only (see below).
 - **Model routing is by task, not by complexity.** Reading a turn uses the fast model and writing an answer the strong one; there is no separate route for complex itineraries.
 - **Local model (Ollama) is optional and slow.** On small GPUs a local model often misses the time budget, so Gemini is the default.
 - **The judge is an LLM.** Its verdicts can vary between runs, which is why prices, flags and leaks are decided by code checks only.
