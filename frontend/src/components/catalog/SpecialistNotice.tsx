@@ -5,7 +5,9 @@ import { useState } from "react";
 import { ApiError, sendEnquiry } from "@/lib/api";
 import type { ComponentOf } from "@/lib/catalog-schema";
 
-import { Card, Field, Pill } from "./ui";
+import { brand } from "@/lib/brand";
+
+import { Card, Field, Icon, INPUT, Pill } from "./ui";
 
 type Props = ComponentOf<"specialist_notice">;
 
@@ -48,35 +50,43 @@ export function SpecialistNotice({ reason, message, enquiry_id, summary }: Props
   }
 
   return (
-    <Card label={TITLES[reason]} accent={plan ? "sun" : "coral"} wide>
-      <h3 className="text-brand-md font-semibold">{TITLES[reason]}</h3>
-      <p className="text-brand-sm">{message}</p>
-      {enquiry_id && !done && <p className="text-brand-xs text-muted">We&apos;ve noted this for our team.</p>}
+    <Card label={TITLES[reason]} accent={plan ? "sun" : "coral"} wide icon={plan ? "route" : "chat"}
+      title={TITLES[reason]} subtitle={`Real people at ${brand.name}`}>
+      <p className="text-brand-sm leading-relaxed">{message}</p>
+      {enquiry_id && !done && (
+        <p className="flex items-center gap-1.5 text-brand-xs text-muted">
+          <Icon name="check" className="h-3.5 w-3.5 text-accent-leaf" />
+          We&apos;ve noted this for our team.
+        </p>
+      )}
       {done ? (
-        <p className="text-brand-sm font-semibold" role="status">{done}</p>
+        <p className="flex items-start gap-2 rounded-lg bg-accent-leaf/10 px-3 py-2.5 text-brand-sm font-semibold" role="status">
+          <Icon name="check" className="mt-0.5 h-4 w-4 text-accent-leaf" />
+          {done}
+        </p>
       ) : open ? (
-        <form onSubmit={submit} className="flex flex-col gap-3">
+        <form onSubmit={submit} className="flex flex-col gap-3 rounded-lg bg-ink/[0.025] p-3">
           <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} autoComplete="name" />
           <Field label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={254} autoComplete="email" />
-          <label className="flex flex-col gap-1 text-brand-sm">
-            <span className="font-semibold">{plan ? "Your trip (edit as you like)" : "Anything we should know? (optional)"}</span>
+          <label className="flex flex-col gap-1.5 text-brand-sm">
+            <span className="font-medium text-ink/80">{plan ? "Your trip (edit as you like)" : "Anything we should know? (optional)"}</span>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               maxLength={2000}
               rows={3}
-              className="rounded-input border border-line px-3 py-2 text-brand-md outline-none focus:border-brand-orange"
+              className={`${INPUT} border-line`}
             />
           </label>
           {error && <p role="alert" className="text-brand-sm text-accent-coral">{error}</p>}
           <div className="flex flex-wrap gap-2">
-            <Pill type="submit" disabled={sending}>{sending ? "Sending…" : "Send to our team"}</Pill>
+            <Pill type="submit" icon="arrow" disabled={sending}>{sending ? "Sending…" : "Send to our team"}</Pill>
             <Pill variant="outline" onClick={() => setOpen(false)} disabled={sending}>Cancel</Pill>
           </div>
         </form>
       ) : (
         <div>
-          <Pill onClick={() => setOpen(true)} variant={plan ? "outline" : "primary"}>
+          <Pill onClick={() => setOpen(true)} variant={plan ? "outline" : "primary"} icon="arrow">
             {plan ? "Send a custom plan request" : "Ask a specialist to contact me"}
           </Pill>
         </div>

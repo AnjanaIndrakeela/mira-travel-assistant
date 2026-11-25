@@ -23,6 +23,7 @@ next-env.d.ts
 
 # Evaluation output (final report is copied to docs/ on submission)
 evaluation/reports/*.json
+evaluation/reports/*_partial.md
 
 # OS / editors
 .DS_Store

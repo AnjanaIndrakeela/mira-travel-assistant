@@ -6,8 +6,10 @@ Here plain rules pick out what a quote needs: the tour named, a start date, adul
 children's ages, plus a rough intent. Prices still come only from the pricing engine and the
 reply wording for a quote is already code, so the quick-booker journeys keep working.
 
-It reads only the latest message; earlier slots stay in the graph state. Anything it can't
-read returns None, and the turn keeps the safe handoff.
+It reads only the latest message; earlier slots stay in the graph state. Trip planning
+("a tour to Anuradhapura") is read from place names and trip words, so discovery keeps
+working too. A message it still can't read gets the first discovery question (R1), not a
+handoff: only an explicit request for a person goes to a specialist.
 """
 
 from __future__ import annotations
@@ -43,6 +45,11 @@ GREETING = re.compile(r"^\s*(hi|hello|hey|good (?:morning|afternoon|evening))\b[
 DISCOVER = re.compile(r"\b(suggest\w*|recommend\w*|ideas?|options?|what (?:should|can|could|would) (?:we|i)|"
                       r"where (?:should|can) (?:we|i)|plan (?:a|our|my))\b", re.I)
 DAYS = re.compile(r"\b(\d{1,2})\s*(days?|nights?)\b", re.I)
+TRIP = re.compile(r"\b(plan\w*|trip|tours?|holiday|vacation|itinerar\w*|visit\w*|travel\w*|"
+                  r"go(?:ing)? to|explore|honeymoon|getaway)\b", re.I)
+PERSON = re.compile(r"\b(?:talk|speak|chat)\s+(?:to|with)\s+(?:a\s+|an\s+|someone|somebody|"
+                    r"(?:a\s+)?(?:real\s+)?(?:person|human|agent|specialist|consultant|staff))|"
+                    r"\b(?:call|phone|ring)\s+me\b|\bhuman\b", re.I)
 WEEKS = re.compile(r"\b(a|one|two|three|\d)\s+weeks?\b|\bfortnight\b", re.I)
 
 
@@ -64,6 +71,19 @@ def find_interests(text: str) -> list[str]:
         if any(word.startswith(k) for k in keys) and word not in found:
             found.append(word)
     return found
+
+
+def find_places(text: str, tours: list[CatalogTour]) -> list[str]:
+    """Sri Lankan places the message names, as written in our pages ("Nuwara Eliya")."""
+    from app.rag.retriever import PLACES
+    names = {p.replace("_", " ") for p in PLACES} | {d.replace("-", " ") for t in tours for d in t.destinations}
+    low = text.lower().replace("-", " ")
+    hits = [(m.start(), n) for n in names for m in re.finditer(rf"\b{re.escape(n)}\b", low)]
+    out: list[str] = []
+    for _, n in sorted(hits, key=lambda h: (h[0], -len(h[1]))):
+        if not any(n in o.lower() for o in out):            # "galle fort" covers "galle"
+            out.append(n.title())
+    return out
 
 
 def _num(word: str) -> int:
@@ -142,19 +162,25 @@ def quick_analysis(message: str, tours: list[CatalogTour], today: date) -> TurnA
     start = find_date(message, today)
     adults, ages, no_age = find_party(message)
     days, interests = find_days(message), find_interests(message)
+    places = find_places(message, tours)
     has_slots = bool(tour or start or adults or ages)
+    planning = (interests or days or places or DISCOVER.search(message)
+                or (TRIP.search(message) and not tour and not POLICY.search(message)))
     if GREETING.match(message):
         intent, retrieval = Intent.GREETING, False
-    elif not tour and (interests or days) and (DISCOVER.search(message) or not PRICE.search(message)):
-        intent, retrieval = Intent.DISCOVERY, False         # a planner: suggest tours
+    elif PERSON.search(message):
+        intent, retrieval = Intent.HANDOFF, False
+    elif not tour and planning and (DISCOVER.search(message) or not PRICE.search(message)):
+        intent, retrieval = Intent.DISCOVERY, False         # a planner: ask, then suggest tours
     elif BOOK.search(message) and has_slots:
         intent, retrieval = Intent.BOOK, False
     elif PRICE.search(message) or has_slots and not POLICY.search(message):
         intent, retrieval = Intent.QUOTE, False
     elif POLICY.search(message):
         intent, retrieval = Intent.POLICY, True
-    else:
-        return None                       # can't tell what they want: keep the safe handoff
+    else:                                 # can't tell what they want: ask the first question
+        intent, retrieval = Intent.GREETING, False
     trip = TripDetails(tour_mention=tour, start_date=start, adults=adults, child_ages=ages,
-                       interests=interests, days=days, missing=["child_ages"] if no_age else [])
+                       interests=interests, destinations=places, days=days,
+                       missing=["child_ages"] if no_age else [])
     return TurnAnalysis(intent=intent, tour_mention=tour, needs_retrieval=retrieval, trip=trip)

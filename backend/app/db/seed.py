@@ -58,7 +58,9 @@ def seed_media(session: Session, media_dir: Path, report: SeedReport) -> None:
                 continue
             if not (manifest.parent / entry["file"]).is_file():
                 raise FileNotFoundError(f"{manifest} lists missing file {entry['file']}")
-            session.add(Media(tag=entry["tag"], path=path, alt=entry["alt"]))
+            session.add(Media(tag=entry["tag"], path=path, alt=entry["alt"], kind=entry.get("kind", "illustration"),
+                              credit=entry.get("credit"), licence=entry.get("licence"),
+                              licence_url=entry.get("licence_url"), source=entry.get("source")))
             report.media_created += 1
 
 

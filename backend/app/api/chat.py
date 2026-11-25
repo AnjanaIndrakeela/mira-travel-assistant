@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_chat_graph, get_db
@@ -146,6 +147,17 @@ def conversation(conversation_id: uuid.UUID, db: Session = Depends(get_db),
     if conv is None:
         raise HTTPException(404, "We couldn't find that conversation.")
     state = graph.get_state({"configurable": {"thread_id": conv.thread_id}}).values or {}
-    messages = [ChatMessage(role="traveller" if isinstance(m, HumanMessage) else "mira", text=text_of(m))
-                for m in state.get("messages", [])]
+    msgs = state.get("messages", [])
+    # one ui_log entry per reply, newest last (a chat older than ui_log has fewer: align the ends)
+    replies = [i for i, m in enumerate(msgs) if not isinstance(m, HumanMessage)]
+    log = list(state.get("ui_log") or [])[-len(replies):] if replies else []
+    ui_at = dict(zip(replies[len(replies) - len(log):], log))
+    messages = [ChatMessage(role="traveller" if isinstance(m, HumanMessage) else "mira", text=text_of(m),
+                            ui=ui_at.get(i, []))
+                for i, m in enumerate(msgs)]
+    # a specialist's replies, exactly as written, where they were sent (never in the graph state)
+    from app import specialist
+    from app.db.models import SpecialistReply
+    replies = db.scalars(select(SpecialistReply).where(SpecialistReply.conversation_id == conv.id)).all()
+    messages = specialist.merge(messages, replies, lambda r: ChatMessage(role="specialist", text=r.body))
     return ConversationOut(conversation_id=conv.id, visitor_id=conv.visitor_id, messages=messages)

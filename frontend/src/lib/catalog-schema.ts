@@ -24,6 +24,21 @@ export const accents = ["teal", "leaf", "sun", "sky", "coral"] as const;
 
 const sourceRef = z.strictObject({ doc_id: docId, title: text(120) });
 
+/** A picture from our own media route; open-licence photos carry their credit. */
+const image = z.strictObject({
+  src: z.string().regex(/^\/api\/v1\/media\/[a-z0-9-]+\/[a-z0-9][a-z0-9.-]*\.(?:jpg|jpeg|png|svg|webp)$/),
+  alt: text(200),
+  credit: text(120).nullable().default(null),
+  licence: text(40).nullable().default(null),
+  source: z
+    .string()
+    .max(300)
+    .regex(/^https:\/\/commons\.wikimedia\.org\/wiki\/File:[^\s<>"']+$/)
+    .nullable()
+    .default(null),
+});
+export type Image = z.infer<typeof image>;
+
 export const TravellerPicker = z.strictObject({
   type: z.literal("traveller_picker"),
   adults: z.number().int().min(1).max(20).default(2),
@@ -42,6 +57,7 @@ export const TourCard = z.strictObject({
   accent: z.enum(accents),
   bookable: z.boolean(),
   source: sourceRef,
+  images: z.array(image).max(3).default([]),
 });
 
 export const ItineraryDay = z.strictObject({
@@ -53,6 +69,7 @@ export const ItineraryDay = z.strictObject({
   meals: text(80).nullable().default(null),
   stay: text(160).nullable().default(null),
   source: sourceRef,
+  image: image.nullable().default(null),
 });
 
 /** Quote ID only: the component fetches the verified public quote itself. */
@@ -65,9 +82,9 @@ export const BookingForm = z.strictObject({
   type: z.literal("booking_form"),
   quote_id: z.uuid(),
   fields: z
-    .array(z.enum(["name", "email", "phone", "card_number"]))
+    .array(z.enum(["name", "email", "phone", "card"]))
     .min(1)
-    .default(["name", "email", "card_number"]),
+    .default(["name", "email", "phone", "card"]),
 });
 
 export const SpecialistNotice = z.strictObject({
@@ -99,6 +116,12 @@ export const WelcomeBack = z.strictObject({
   quote_id: z.uuid().nullable().default(null),
 });
 
+export const PhotoGallery = z.strictObject({
+  type: z.literal("photo_gallery"),
+  title: text(120),
+  images: z.array(image).min(1).max(6),
+});
+
 export const UIComponentSchema = z.discriminatedUnion("type", [
   TravellerPicker,
   TourCard,
@@ -108,6 +131,7 @@ export const UIComponentSchema = z.discriminatedUnion("type", [
   SpecialistNotice,
   SourceList,
   WelcomeBack,
+  PhotoGallery,
 ]);
 
 export type UIComponent = z.infer<typeof UIComponentSchema>;
@@ -123,6 +147,7 @@ export const catalog = {
   specialist_notice: SpecialistNotice,
   source_list: SourceList,
   welcome_back: WelcomeBack,
+  photo_gallery: PhotoGallery,
 } as const;
 
 /** Parse one payload from the server; null (and a console warning) if it isn't in the catalog. */

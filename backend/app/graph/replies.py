@@ -14,6 +14,13 @@ from app.graph.state import Slot
 UNKNOWN_INFO = ("I don't have that information in our travel content. I can pass your question "
                 "to a travel specialist, who will get back to you.")
 SPECIALIST_PRICE = "A travel specialist will confirm the price for these dates and get back to you."
+
+
+def service_price(service: str) -> str:
+    """A price asked for something with no rate in our sheet: never a guess."""
+    return (f"We don't have a set price for {service} on its own, so I won't guess one. I've passed "
+            "your request to a travel specialist, who will confirm the price and get back to you. "
+            "Our tours include transfers, if you'd like to look at those.")
 DECLINE = ("I can't change our prices or offer discounts in this chat, and I keep to our normal "
            "booking rules. I'm happy to give you a standard quote, though.")
 OFF_TOPIC = ("I can only help with holidays in Sri Lanka with Ceylon Compass Holidays. "
@@ -50,9 +57,12 @@ def party_words(adults: int, children: int, infants: int) -> str:
     return ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1]
 
 
-def ask_question(missing: list[Slot]) -> str:
+TRIP_LENGTH = "how many days you have"
+
+
+def ask_question(missing: list[Slot], extra: list[str] | None = None) -> str:
     """One combined question for everything still missing (it counts as one of the three)."""
-    words = [SLOT_WORDS[s] for s in missing]
+    words = [SLOT_WORDS[s] for s in missing] + list(extra or [])
     joined = words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
     return f"Could you tell me {joined}?"
 
@@ -60,17 +70,19 @@ def ask_question(missing: list[Slot]) -> str:
 def quote_text(q: dict) -> str:
     """The verified quote in fixed wording. Numbers come straight from the PublicQuote."""
     who = party_words(q["adults"], q["children"], q["infants"])
-    when = (f"on {nice_date(q['start_date'])}" if q["start_date"] == q["end_date"]
+    when = (nice_date(q['start_date']) if q["start_date"] == q["end_date"]
             else f"{nice_date(q['start_date'])} to {nice_date(q['end_date'])}")
-    lines = [f"Here is your price for the {q['tour_name']}, {when}, for {who}: "
-             f"{money(q['price_usd'])} in total."]
+    lines = [f"Here is your price for the **{q['tour_name']}**:", "",
+             f"- **When:** {when}",
+             f"- **Travellers:** {who}",
+             f"- **Total:** {money(q['price_usd'])}"]
     if q["balance_usd"]:
-        lines.append(f"To book, the deposit is {money(q['deposit_usd'])}, and the balance of "
-                     f"{money(q['balance_usd'])} is due by {nice_date(q['balance_due'])}.")
+        lines += [f"- **Deposit to book:** {money(q['deposit_usd'])}",
+                  f"- **Balance:** {money(q['balance_usd'])}, due by {nice_date(q['balance_due'])}"]
     else:
-        lines.append(f"The full {money(q['price_usd'])} is paid when you book.")
-    return " ".join(lines)
+        lines.append(f"- **Payment:** the full {money(q['price_usd'])} is paid when you book")
+    return "\n".join(lines)
 
 
 def tour_list(cards: list[dict]) -> str:
-    return "\n".join(f"- {c['name']} ({c['why']})" for c in cards)
+    return "\n".join(f"- **{c['name']}**: {c['why']}" for c in cards)

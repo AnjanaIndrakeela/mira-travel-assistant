@@ -57,8 +57,11 @@ def test_media_seeded_once_and_files_exist(db):
     seed(db, settings)
     seed(db, settings)
     rows = db.scalars(select(Media).where(Media.tag == "ella")).all()
-    assert len(rows) == 4
-    assert db.scalar(select(func.count()).select_from(Media).where(Media.path.like("ella/%"))) == 4
+    assert len(rows) == 6                                  # 4 illustrations + 2 open-licence photos
+    assert db.scalar(select(func.count()).select_from(Media).where(Media.path.like("ella/%"))) == 6
     for row in rows:
         assert (settings.mira_media_dir / row.path).is_file()
-        assert row.alt.startswith("Illustration")
+        if row.kind == "photo":                            # the licence needs the credit shown
+            assert row.credit and row.licence and row.source.startswith("https://commons.wikimedia.org/")
+        else:
+            assert row.alt.startswith("Illustration") and row.credit is None

@@ -95,6 +95,14 @@ def make(base, model=None, retriever=None):
     return build_graph(deps)
 
 
+SHOWN = {"tour_card", "photo_gallery", "itinerary_day", "specialist_notice", "booking_form", "price_breakdown"}
+
+
+def shown(out: dict) -> list[str]:
+    """Result components on screen (tours, photos, offers, booking), not a question helper."""
+    return [c["type"] for c in out.get("ui") or [] if c["type"] in SHOWN]
+
+
 def turn(graph, text, thread="t1"):
     return graph.invoke({"messages": [HumanMessage(content=text)], "thread_id": thread, "trace_id": None},
                         {"configurable": {"thread_id": thread}})
@@ -144,7 +152,10 @@ def S(**kw):
     (S(intent="quote", selected_tour_id="T01", start_date="2027-01-10",
        party={"adults": 2, "child_ages": []}), "price"),
     (S(intent="quote", selected_tour_id="T01"), "ask"),
-    (S(intent="discovery", interests=["beach"]), "match_tours"),
+    (S(intent="discovery", interests=["beach"]), "ask"),         # gather first, then show
+    (S(intent="discovery", interests=["beach"], questions_asked=3), "match_tours"),
+    (S(intent="discovery", interests=["beach"], start_date="2027-01-10",
+       party={"adults": 2, "child_ages": []}), "match_tours"),
     (S(intent="quote", unmatched_tour="Adam's Peak climb"), "match_tours"),
 ])
 def test_route_branches(base, state, action):
@@ -217,10 +228,13 @@ def test_s13_planner_then_quote_then_updated_quote(base):
                      T(interests=["ancient cities"], days=7, adults=4, start_date=date(2027, 5, 3))])
     g = make(base, model)
     first = turn(g, "We want to see the ancient cities, about a week.")
-    assert first["action"] == "match_tours" and first["tour_cards"][0]["tour_id"] == "T09"
-    assert first["quote"] is None and first["question"]
+    # gathering: one question, the best match picked but nothing shown yet
+    assert first["action"] == "ask" and first["question"] and first["quote"] is None
+    assert first["suggested_tour_ids"][0] == "T09" and not shown(first)
     second = turn(g, "2 adults, starting 3 May 2027.")
     assert second["assumed_tour"] and second["quote"]["price_usd"] == 2125
+    types = [c["type"] for c in second["ui"]]
+    assert types[0] == "tour_card" and types.count("tour_card") >= 2        # priced match first, then the others
     third = turn(g, "Actually there will be 4 adults, can you update the price?")
     assert (third["quote"]["price_usd"], third["quote"]["deposit_usd"]) == (3640, 910)
 
@@ -262,6 +276,18 @@ def test_info_question_is_answered_with_citations(base):
     assert retr.queries[0][1] == "T04"
 
 
+def test_fallback_answer_keeps_its_source(base):
+    """Eval C-G03/C-G04/C-G05: when Gemini fails, the code answer quotes the top page as [1];
+    that page must still be cited and shown as a source."""
+    model = FakeModel(RouterDecision=[R("policy", retrieval=True)], TripDetails=[T()],
+                      GroundedAnswer=[RuntimeError("down"), RuntimeError("down"), RuntimeError("down")])
+    retr = FakeRetriever(Retrieved(query="q", chunks=[chunk()], abstain=False))
+    out = turn(make(base, model, retr), "What's your cancellation policy?")
+    assert out["response"].startswith("Here is what our Cancellation policy page says")
+    assert out["citations"] == [1]
+    assert any(c["type"] == "source_list" for c in out["ui"])
+
+
 def test_abstain_offers_a_specialist(base):
     model = FakeModel(RouterDecision=[R("tour_info", retrieval=True)], TripDetails=[T()])
     retr = FakeRetriever(Retrieved(query="q", chunks=[], abstain=True, reason="no_date_info"))
@@ -276,7 +302,7 @@ def test_llm_down_still_replies(base):
     boom = RuntimeError("503 high demand")
     model = FakeModel(RouterDecision=[boom], TripDetails=[boom], GroundedAnswer=[boom, boom])
     out = turn(make(base, model), "Hello?")
-    assert out["action"] == "handoff" and out["response"]          # router fallback = handoff
+    assert out["action"] == "greet" and out["response"] and out["question"]   # rules: greet and ask, no handoff
 
 
 def test_invented_price_is_removed_by_the_output_guard(base):
@@ -379,7 +405,7 @@ def test_assumed_tour_and_discount_are_mentioned_in_code_text(base):
     g = make(base, model)
     turn(g, "Ancient cities, about a week")
     out = turn(g, "2 adults from 3 May 2027, any discount?")
-    assert "closest match" in out["response"] and "can't offer discounts" in out["response"]
+    assert "fits your trip best" in out["response"] and "can't offer discounts" in out["response"]
     assert "USD 2,125" in out["response"]
 
 

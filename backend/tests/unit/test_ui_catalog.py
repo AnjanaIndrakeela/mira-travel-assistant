@@ -31,9 +31,10 @@ def card(**over):
 
 # ---- 11.2 / 11.3 catalog ----------------------------------------------------------------
 
-def test_catalog_has_the_eight_components():
+def test_catalog_has_the_nine_components():
     assert set(COMPONENT_TYPES) == {"traveller_picker", "tour_card", "itinerary_day", "price_breakdown",
-                                    "booking_form", "specialist_notice", "source_list", "welcome_back"}
+                                    "booking_form", "specialist_notice", "source_list", "welcome_back",
+                                    "photo_gallery"}
     names = {s["properties"]["type"]["const"] for s in json_schema()["$defs"].values() if "type" in s.get("properties", {})}
     assert names == set(COMPONENT_TYPES)
 
@@ -152,9 +153,20 @@ def test_asking_who_travels_shows_the_traveller_picker(ds):
 
 
 def test_tour_question_shows_its_itinerary(ds):
-    state = {"action": "retrieve", "intent": "tour_info", "selected_tour_id": "T08"}
+    state = {"action": "retrieve", "intent": "tour_info", "selected_tour_id": "T08",
+             "tour_mention": "Highlights of Sri Lanka"}
     ui, _ = validate_ui(choose_components(state, content=ds.content, rates=ds.rates), quote_id=None)
     assert ui[0]["type"] == "tour_card" and sum(c["type"] == "itinerary_day" for c in ui) == 8
+
+
+def test_remembered_tour_is_not_shown_for_another_question(ds):
+    """Asked about Kandy Heritage Stay, then "Is Yala open in September?": no T07 card, and the
+    unanswered question gets the specialist notice instead."""
+    state = {"action": "retrieve", "intent": "tour_info", "selected_tour_id": "T07", "tour_mention": None}
+    assert choose_components(state, content=ds.content, rates=ds.rates) == []
+    state = {**state, "tour_mention": "Kandy Heritage Stay", "abstain_reason": "not_in_sources"}
+    types = [c["type"] for c in choose_components(state, content=ds.content, rates=ds.rates)]
+    assert types == ["specialist_notice"]
 
 
 def test_cards_and_days_never_carry_money(ds):

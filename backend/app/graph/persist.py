@@ -6,6 +6,8 @@
 - Every quote gets a private enquiry for staff (R7): kind "quote" when priced, "no_price"
   when a specialist must confirm (flags = the reason codes, e.g. missing_rate).
 - A tour we don't have, or a request for a person, becomes a "custom" enquiry.
+- A price asked for a service with no rate row (an airport transfer...) becomes a flagged
+  "no_price" enquiry with the traveller's words, so a specialist can quote it (R6).
 """
 
 from __future__ import annotations
@@ -17,9 +19,10 @@ from sqlalchemy.orm import Session
 
 from app.db.repo import create_enquiry, save_quote
 from app.pricing import QuoteRequest, calculate_quote
+from app.visitors import remember
 
 NOISE_FLAGS = {"output_guard"}       # about our reply, not something staff must act on
-ENQUIRY_FLAGS = {"custom_request": "custom", "handoff_requested": "custom"}
+ENQUIRY_FLAGS = {"unpriced_service": "no_price", "custom_request": "custom", "handoff_requested": "custom"}
 
 
 def _uuid(value: Any) -> uuid.UUID | None:
@@ -44,7 +47,10 @@ def persist_turn(session: Session, state: dict, deps) -> dict:
                                  notes=f"Assumed tour {req['tour_id']} (closest suggestion)"
                                  if state.get("assumed_tour") else None)
         out.update(quote_id=str(quote.id), enquiry_id=str(enquiry.id))
+        remember(session, state.get("visitor_id"), state, quote.id)        # R2
         return out
+
+    remember(session, state.get("visitor_id"), state)
 
     kind = next((ENQUIRY_FLAGS[f] for f in flags if f in ENQUIRY_FLAGS), None)
     if kind:

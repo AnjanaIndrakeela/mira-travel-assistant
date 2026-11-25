@@ -7,6 +7,8 @@
 - a question about one tour -> its tour_card (and itinerary days)
 - asking who is travelling -> traveller_picker
 - cited sources -> source_list
+- pictures: each tour card and itinerary day gets photos of the places it visits, and a trip
+  the traveller described (places they named) gets a photo_gallery; all from app.ui.photos
 Everything here is still checked by guards.ui_validator before it leaves the server.
 """
 
@@ -16,6 +18,7 @@ import re
 from typing import Any
 
 from app.rag.chunker import mask_money
+from app.ui import photos
 from app.ui.catalog import MONEY, UNSAFE, Accent
 
 ACCENTS: tuple[Accent, ...] = ("teal", "leaf", "sun", "sky", "coral")
@@ -69,6 +72,7 @@ def tour_card(tour_id: str, *, content: Any, rates: Any, why: str | None = None)
         "accent": accent_for(doc.id),
         "bookable": doc.id in rates.tours and not doc.expired_offer,
         "source": {"doc_id": doc.id, "title": _clip(doc.title, 120)},
+        "images": photos.for_tour(doc, 3),
     }
 
 
@@ -77,12 +81,29 @@ def itinerary_days(tour_id: str, *, content: Any) -> list[dict]:
     if doc is None or not doc.itinerary:
         return []
     src = {"doc_id": doc.id, "title": _clip(doc.title, 120)}
+    days = doc.itinerary[:MAX_DAYS]
+    pictures = photos.for_days([(d.title, d.description) for d in days])
     return [{"type": "itinerary_day", "tour_id": doc.id, "day": d.day,
              "title": _clip(mask_money(d.title, "tour"), 160),
              "description": _clip(mask_money(d.description, "tour"), 1200) or d.title,
              "meals": _clip(d.meals, 80) if d.meals else None,
              "stay": _clip(d.accommodation, 160) if d.accommodation else None,
-             "source": src} for d in doc.itinerary[:MAX_DAYS]]
+             "source": src, "image": pic}
+            for d, pic in zip(days, pictures)]
+
+
+def photo_gallery(state: dict) -> dict | None:
+    """Pictures of the places the traveller named (or their interests point to)."""
+    from app.graph.tours import wanted_places
+    named = [p for d in state.get("destinations") or [] for p in (photos.places_in(d) or [d])]
+    places = named or sorted(wanted_places(state.get("interests") or [], []))
+    images = photos.for_places(places, 6)
+    if not images:
+        return None
+    names = [p.replace("-", " ").title() for p in dict.fromkeys(photos.ALIASES.get(p, p) for p in places)
+             if p in photos.library() or photos.ALIASES.get(p) in photos.library()]
+    title = "Places on your list" if not names else "Your trip: " + ", ".join(names[:4])
+    return {"type": "photo_gallery", "title": _clip(title, 120), "images": images}
 
 
 def plan_summary(state: dict) -> str | None:
@@ -109,7 +130,7 @@ def plan_summary(state: dict) -> str | None:
 
 
 def notice_reason(state: dict) -> str | None:
-    if state.get("refusals"):
+    if state.get("refusals") or state.get("unpriced_service"):
         return "no_price"
     if state.get("unmatched_tour"):
         return "custom_request"
@@ -131,9 +152,18 @@ def choose_components(state: dict, *, content: Any, rates: Any) -> list[dict]:
         if quote_id:      # without a saved quote there's nothing verified to fetch or book
             ui.append({"type": "price_breakdown", "quote_id": quote_id})
             ui.append({"type": "booking_form", "quote_id": quote_id,
-                       "fields": ["name", "email", "card_number"]})
+                       "fields": ["name", "email", "phone", "card"]})
+
+    if state.get("assumed_tour") and not state.get("tour_cards"):
+        # we picked the closest match: the other matches follow (all of them if none could be priced)
+        shown = q["tour_id"] if q else None
+        for tid in [t for t in state.get("suggested_tour_ids") or [] if t != shown][:2 if q else 3]:
+            if card := tour_card(tid, content=content, rates=rates):
+                ui.append(card)
 
     if reason := notice_reason(state):
+        if reason == "custom_request" and (gallery := photo_gallery(state)):
+            ui.append(gallery)
         # what happens next; the reason itself is already in the reply text
         ui.append({"type": "specialist_notice", "reason": reason, "message": NOTICE[reason],
                    "enquiry_id": state.get("enquiry_id")})
@@ -145,10 +175,13 @@ def choose_components(state: dict, *, content: Any, rates: Any) -> list[dict]:
         top = next((c["tour_id"] for c in cards if itinerary_days(c["tour_id"], content=content)), None)
         if top and action == "match_tours":
             ui.extend(itinerary_days(top, content=content))
+        if action == "match_tours" and state.get("destinations") and (gallery := photo_gallery(state)):
+            ui.insert(0, gallery)                          # the places they asked about, then the tours
         if action == "match_tours" and not reason:     # 12.3: offer a custom plan, never a price
             ui.append({"type": "specialist_notice", "reason": "custom_plan", "message": NOTICE["custom_plan"],
                        "enquiry_id": None, "summary": plan_summary(state)})
-    elif (action == "retrieve" and state.get("intent") == "tour_info" and not q
+    elif (action == "retrieve" and state.get("intent") == "tour_info" and not q and not reason
+          and state.get("tour_mention")                  # named in THIS message, not remembered
           and (tid := state.get("selected_tour_id"))):
         if card := tour_card(tid, content=content, rates=rates):
             ui.append(card)

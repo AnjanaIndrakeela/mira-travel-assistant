@@ -12,6 +12,7 @@ stores it (Phase 9).
 
 from __future__ import annotations
 
+import operator
 from typing import Annotated, Any, Literal, TypedDict
 
 from langchain_core.messages import AnyMessage
@@ -68,6 +69,7 @@ class MiraState(TypedDict, total=False):
     # this turn's work
     tour_mention: str | None          # what the router saw named in THIS message
     unmatched_tour: str | None        # named in this message but not in our published catalogue
+    unpriced_service: str | None      # a price asked for a service we have no rate for (a transfer...)
     trip: dict[str, Any] | None       # TripDetails the guard's Gemini call extracted this turn
     slots_changed: bool               # this message added or changed tour/date/party
     assumed_tour: bool                # priced the top suggestion because no tour was named
@@ -85,6 +87,9 @@ class MiraState(TypedDict, total=False):
     flags: list[str]                  # staff flags for this turn (no_price, custom_request, injection...)
     response: str
     ui: list[dict[str, Any]]          # catalog components, validated (app.ui.catalog)
+    # every reply's components, in order (appended): a reloaded chat shows its cards again.
+    # Kept apart from `messages`, so the cards never go to the LLM.
+    ui_log: Annotated[list[list[dict[str, Any]]], operator.add]
     ui_rejected: list[dict[str, Any]] # what the UI validator dropped: {type, reason}
     citations: list[int]
     trace_id: str | None
@@ -93,7 +98,7 @@ class MiraState(TypedDict, total=False):
 # Keys cleared at the start of every turn (the guard returns these defaults).
 PER_TURN_DEFAULTS: dict[str, Any] = {
     "intent": "", "needs_retrieval": False, "input_flags": [], "tour_mention": None, "trip": None,
-    "unmatched_tour": None, "slots_changed": False, "assumed_tour": False, "question": None,
+    "unmatched_tour": None, "unpriced_service": None, "slots_changed": False, "assumed_tour": False, "question": None,
     "action": "handoff", "missing": [],
     "retrieved": [], "abstain_reason": None, "tour_cards": [], "quote": None, "quote_request": None,
     "refusals": [], "quote_id": None, "enquiry_id": None, "flags": [], "response": "", "ui": [],

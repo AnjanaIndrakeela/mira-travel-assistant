@@ -51,3 +51,10 @@ def upgrade_schema(engine: Engine) -> None:
         conn.execute(text("UPDATE enquiries SET status = 'contacted' WHERE status = 'in_progress'"))
         conn.execute(text(f"ALTER TABLE enquiries ADD CONSTRAINT ck_enquiries_status_allowed "
                           f"CHECK (status IN ({allowed}))"))
+        # photos with credits (open-licence tour pictures)
+        conn.execute(text("ALTER TABLE media ADD COLUMN IF NOT EXISTS kind VARCHAR(20) NOT NULL DEFAULT 'illustration'"))
+        for col, size in (("credit", 200), ("licence", 40), ("licence_url", 300), ("source", 300)):
+            conn.execute(text(f"ALTER TABLE media ADD COLUMN IF NOT EXISTS {col} VARCHAR({size})"))
+        # full mock card form: keep the card type and last four digits only
+        conn.execute(text("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS card_brand VARCHAR(20)"))
+        conn.execute(text("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS card_last4 VARCHAR(4)"))

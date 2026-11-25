@@ -3,35 +3,80 @@
 import { useState } from "react";
 
 import { ApiError, book, type BookingResult } from "@/lib/api";
+import { BRANDS, brandInfo, type Brand, type CardField, checkCard, digitsOf, formatExpiry, formatNumber, guessBrand, TEST_CARDS, toPayload } from "@/lib/card";
+import { brand as site } from "@/lib/brand";
 import type { ComponentOf } from "@/lib/catalog-schema";
 
 import type { Actions } from "./registry";
-import { Card, Field, Pill } from "./ui";
+import { CardLogo } from "./CardLogo";
+import { Card, Chip, Field, Icon, Pill } from "./ui";
 
 type Props = ComponentOf<"booking_form"> & { actions: Actions };
 
 /**
- * Mock booking (11.11). The form posts straight to /bookings: the details never go through
- * the chat, the LLM or the traces, and the card number is never stored.
+ * Mock booking and payment. It asks for everything a real checkout does (cardholder, card
+ * type, number, expiry, security code), checks it here and again on the server, and posts
+ * straight to /bookings: the details never go through the chat, the LLM or the traces, and
+ * only the card type and last four digits are kept.
  */
 export function BookingForm({ quote_id, fields, actions }: Props) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [card, setCard] = useState("");
+  const [holder, setHolder] = useState("");
+  const [brand, setBrand] = useState<Brand>("visa");
+  const [brandTouched, setBrandTouched] = useState(false);
+  const [number, setNumber] = useState("");
+  const [expiry, setExpiry] = useState("");
+  const [cvc, setCvc] = useState("");
+  const [errors, setErrors] = useState<Partial<Record<CardField, string>>>({});
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<BookingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const askCard = fields.includes("card");
+  const info = brandInfo(brand);
+
+  function clear(f: CardField) {
+    if (errors[f]) setErrors((e) => ({ ...e, [f]: undefined }));
+  }
+
+  function onNumber(raw: string) {
+    const guess = guessBrand(digitsOf(raw));
+    const b = guess && !brandTouched ? guess : brand; // follow the number until a type is picked by hand
+    if (b !== brand) setBrand(b);
+    setNumber(formatNumber(raw, b));
+    clear("number");
+    clear("brand");
+  }
+
+  function fillTestCard(t: (typeof TEST_CARDS)[number]) {
+    setBrand(t.brand);
+    setNumber(t.number);
+    setCvc(t.cvc);
+    if (!expiry) setExpiry("12/30");
+    if (!holder) setHolder(name || "Test Traveller");
+    setErrors({});
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setSending(true);
     setError(null);
+    const card = { holder, brand, number, expiry, cvc };
+    if (askCard) {
+      const found = checkCard(card);
+      setErrors(found);
+      if (Object.keys(found).length) return;
+    }
+    setSending(true);
     try {
-      const res = await book(quote_id, { name: name.trim(), email: email.trim(), ...(phone.trim() ? { phone: phone.trim() } : {}) }, card);
+      const contact = { name: name.trim(), email: email.trim(), ...(phone.trim() ? { phone: phone.trim() } : {}) };
+      const res = await book(quote_id, contact, toPayload(card));
       setResult(res);
-      if (res.status !== "confirmed") setCard("");
+      if (res.status !== "confirmed") {
+        setCvc("");
+        if (res.field) setErrors({ [res.field]: res.message.replace(/\s*Nothing was charged\.?/, "") });
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Nothing was charged.");
     } finally {
@@ -40,28 +85,64 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
   }
 
   if (result?.status === "confirmed") {
+    const first = name.trim().split(/\s+/)[0];
     return (
-      <Card label="Booking confirmed" accent="leaf" wide>
-        <h3 className="text-brand-md font-semibold">Booking confirmed</h3>
-        <p className="text-brand-sm" role="status">{result.message}</p>
-        {result.payment_reference && <p className="text-brand-xs text-muted">Reference {result.payment_reference}</p>}
-      </Card>
+      <div className="flex flex-col gap-3">
+        <Card label="Booking confirmed" accent="leaf" wide icon="check" title="Booking confirmed" subtitle="You're all set">
+          <p className="text-brand-sm leading-relaxed" role="status">{result.message}</p>
+          {(result.card || result.payment_reference) && (
+            <div className="flex flex-wrap gap-1.5">
+              {result.card && <Chip icon="card">Paid with {result.card}</Chip>}
+              {result.payment_reference && <Chip icon="tag">Ref {result.payment_reference}</Chip>}
+            </div>
+          )}
+          <div className="rounded-xl bg-accent-leaf/[0.07] p-3 ring-1 ring-accent-leaf/20">
+            <p className="mb-1.5 text-brand-xs font-semibold uppercase tracking-wide text-accent-leaf">What happens next</p>
+            <ul className="flex flex-col gap-1.5 text-brand-sm">
+              <li className="flex gap-2"><Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-accent-leaf" />
+                <span>Our team has your booking and will contact you at <strong className="break-words">{email.trim()}</strong>.</span></li>
+              <li className="flex gap-2"><Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-accent-leaf" />
+                Keep your reference handy if you write to us.</li>
+              <li className="flex gap-2"><Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-accent-leaf" />
+                Questions about your trip? Just ask {site.assistantName} here.</li>
+            </ul>
+          </div>
+        </Card>
+
+        {/* a thank-you from Mira, styled like her messages */}
+        <div
+          role="status"
+          className="reveal w-fit max-w-full rounded-2xl rounded-tl-sm border border-white bg-gradient-to-br from-white via-white to-[#FFF4EC] px-4 py-3 text-brand-md shadow-[0_1px_0_#fff_inset,0_-2px_0_rgba(17,17,17,0.04)_inset,0_14px_30px_-18px_rgba(17,17,17,0.45),0_2px_5px_rgba(17,17,17,0.06),0_0_0_1px_rgba(17,17,17,0.04)] sm:max-w-[85%] lg:max-w-[46rem]"
+        >
+          <p className="font-semibold">Thank you{first ? `, ${first}` : ""}!</p>
+          <p className="mt-1 text-brand-sm leading-relaxed">
+            Thank you for booking with {site.name}. We can&apos;t wait to welcome you to Sri Lanka. Have a wonderful trip!
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Pill variant="outline" disabled={actions.busy} onClick={() => actions.send("What should I pack for this trip?")}>
+              What should I pack?
+            </Pill>
+            <Pill variant="outline" disabled={actions.busy} onClick={() => actions.send("I'd like to plan another trip.")}>
+              Plan another trip
+            </Pill>
+          </div>
+        </div>
+      </div>
     );
   }
 
   if (!open) {
     return (
       <div>
-        <Pill onClick={() => setOpen(true)}>Book this trip</Pill>
+        <Pill onClick={() => setOpen(true)} icon="arrow">Book this trip</Pill>
       </div>
     );
   }
 
   return (
-    <Card label="Book this trip" accent="sun" wide>
-      <h3 className="text-brand-md font-semibold">Book this trip</h3>
-      {result && (
-        <div role="alert" className="flex flex-col gap-2 rounded-input border border-accent-coral p-3 text-brand-sm">
+    <Card label="Book this trip" accent="sun" wide icon="card" title="Book this trip" subtitle="Secure your dates in a few steps">
+      {result && !result.field && (
+        <div role="alert" className="flex flex-col gap-2 rounded-lg border border-accent-coral/40 bg-accent-coral/[0.06] p-3 text-brand-sm">
           <p>{result.message}</p>
           {result.next_steps.includes("new_quote") && (
             <div>
@@ -73,36 +154,105 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
         </div>
       )}
       {error && (
-        <p role="alert" className="rounded-input border border-accent-coral p-3 text-brand-sm">
+        <p role="alert" className="rounded-lg border border-accent-coral/40 bg-accent-coral/[0.06] p-3 text-brand-sm">
           {error}
         </p>
       )}
       {result?.status !== "price_changed" && (
         <form onSubmit={submit} className="flex flex-col gap-3">
-          {fields.includes("name") && (
-            <Field label="Full name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} autoComplete="name" />
+          <fieldset className="flex flex-col gap-3">
+            <legend className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
+              <Icon name="user" className="h-3.5 w-3.5" />
+              Your details
+            </legend>
+            {fields.includes("name") && (
+              <Field label="Full name" name="name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} autoComplete="name" />
+            )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              {fields.includes("email") && (
+                <Field label="Email" name="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={254} autoComplete="email" />
+              )}
+              {fields.includes("phone") && (
+                <Field label="Phone (optional)" name="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} autoComplete="tel" />
+              )}
+            </div>
+          </fieldset>
+
+          {askCard && (
+            <fieldset className="flex min-w-0 flex-col gap-3 rounded-lg border border-line/80 bg-ink/[0.02] p-2.5 sm:p-3">
+              <legend className="flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                <Icon name="card" className="h-3.5 w-3.5" />
+                Card payment
+              </legend>
+              <p className="flex gap-2 rounded-lg bg-accent-sun/15 px-3 py-2 text-brand-xs">
+                <Icon name="shield" className="mt-px h-3.5 w-3.5" />
+                <span>Secure payment: your card details are used only for this payment and are never stored.</span>
+              </p>
+              <div className="flex flex-wrap gap-1.5" aria-label="Quick fill a card">
+                {TEST_CARDS.map((t) => (
+                  <button
+                    key={t.number}
+                    type="button"
+                    onClick={() => fillTestCard(t)}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-line bg-surface py-1 pl-1.5 pr-3 text-brand-xs font-medium shadow-sm hover:border-brand-orange focus-visible:outline-2 focus-visible:outline-brand-orange"
+                  >
+                    <CardLogo brand={t.brand} className="h-4 w-6" />
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <Field label="Name on card" name="cc-name" value={holder} error={errors.holder}
+                onChange={(e) => { setHolder(e.target.value); clear("holder"); }}
+                maxLength={80} autoComplete="off" />
+
+              <div role="radiogroup" aria-label="Card type" className="flex flex-col gap-1 text-brand-sm">
+                <span className="font-medium text-ink/80">Card type</span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {BRANDS.map((b) => (
+                    <button
+                      key={b.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={brand === b.id}
+                      aria-label={b.name}
+                      onClick={() => { setBrand(b.id); setBrandTouched(true); setNumber((n) => formatNumber(n, b.id)); clear("brand"); clear("cvc"); }}
+                      className={`relative flex min-h-11 min-w-0 flex-col items-center justify-center gap-1 rounded-input border px-1 py-2 text-[11px] font-semibold transition-all sm:text-brand-xs ${brand === b.id ? "border-brand-orange bg-brand-orange/10 ring-4 ring-brand-orange/10" : "border-line bg-surface hover:border-ink/30"}`}
+                    >
+                      {brand === b.id && (
+                        <span aria-hidden className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand-orange text-ink">
+                          <Icon name="check" className="h-2.5 w-2.5" />
+                        </span>
+                      )}
+                      <CardLogo brand={b.id} className="h-[26px] w-10 sm:h-8 sm:w-12" />
+                      <span className="max-w-full truncate">
+                        <span className="sm:hidden">{b.short}</span>
+                        <span className="hidden sm:inline">{b.name}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {errors.brand && <span className="text-brand-xs font-semibold text-accent-coral">{errors.brand}</span>}
+              </div>
+
+              <Field label="Card number" name="cc-number" value={number} error={errors.number}
+                onChange={(e) => onNumber(e.target.value)}
+                inputMode="numeric" autoComplete="off" placeholder={brand === "amex" ? "3782 822463 10005" : "4242 4242 4242 4242"}
+                maxLength={23} />
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Expiry (MM/YY)" name="cc-exp" value={expiry} error={errors.expiry}
+                  onChange={(e) => { setExpiry(formatExpiry(e.target.value, expiry)); clear("expiry"); }}
+                  inputMode="numeric" autoComplete="off" placeholder="MM/YY" maxLength={5} />
+                <Field label={brand === "amex" ? "CID (4 digits)" : "CVV (3 digits)"} name="cc-cvc" type="password" value={cvc} error={errors.cvc}
+                  onChange={(e) => { setCvc(digitsOf(e.target.value).slice(0, info.cvc)); clear("cvc"); }}
+                  inputMode="numeric" autoComplete="off" maxLength={info.cvc} />
+              </div>
+            </fieldset>
           )}
-          {fields.includes("email") && (
-            <Field label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={254} autoComplete="email" />
-          )}
-          {fields.includes("phone") && (
-            <Field label="Phone (optional)" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} autoComplete="tel" />
-          )}
-          {fields.includes("card_number") && (
-            <Field
-              label="Card number (demo)"
-              inputMode="numeric"
-              autoComplete="off"
-              value={card}
-              onChange={(e) => setCard(e.target.value)}
-              required
-              minLength={12}
-              maxLength={23}
-              hint="Demo payment only, nothing is charged. Use 4242 4242 4242 4242 (works) or 4000 0000 0000 0002 (fails)."
-            />
-          )}
+
           <div className="flex flex-wrap gap-2">
-            <Pill type="submit" disabled={sending}>
+            <Pill type="submit" icon="arrow" disabled={sending}>
               {sending ? "Booking…" : result ? "Try again" : "Pay deposit and book"}
             </Pill>
             <Pill variant="outline" onClick={() => setOpen(false)} disabled={sending}>

@@ -14,6 +14,7 @@ down or no key is set.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
@@ -27,10 +28,12 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.graph import replies
 from app.graph.persist import persist_turn
+from app.visitors import known_slots
 from app.graph.prompts import load_prompt, system_prompt
 from app.graph.state import PER_TURN_DEFAULTS, MiraState, Slot
 from app.graph.quick_parse import quick_analysis
-from app.graph.tours import CatalogTour, catalog, is_place, match_tour, suggest_tours, traveller_type
+from app.graph.tours import (CatalogTour, is_place, live_tours, match_tour, product_match, suggest_tours,
+                             traveller_type)
 from app.guards.input_guard import check_input
 from app.guards.ui_validator import validate_ui
 from app.guards.output_guard import amounts_in, check_output
@@ -44,6 +47,30 @@ from app.ui.build import choose_components
 logger = logging.getLogger("mira.graph")
 
 NO_TOOLS = {"injection", "out_of_scope", "greeting", "handoff"}   # no extraction, no quote
+
+# R6: a price asked for a service we have no rate row for. Code spots it, so the answer never
+# depends on the model: no guess, a specialist confirms, and staff get a flagged enquiry.
+ASKS_PRICE = re.compile(r"\b(how much|price|prices|cost|costs|rate|rates|quote|charge|fee)\b", re.I)
+SERVICES: tuple[tuple[str, str], ...] = (
+    (r"airport (?:transfer|pick-?up|drop(?:-?off)?)|(?:transfer|pick-?up|drop-?off) (?:from|to) (?:the )?(?:airport|cmb)",
+     "an airport transfer"),
+    (r"\btransfers?\b", "a transfer"),
+    (r"\b(?:taxi|cab|tuk-?tuk)\b", "a taxi"),
+    (r"\b(?:car|van|vehicle) (?:hire|rental)\b|\b(?:hire|rent) a (?:car|van)\b|\bcar with (?:a )?driver\b|\bchauffeur\b",
+     "a car with a driver"),
+    (r"\b(?:hotel|room|accommodation)s? only\b|\bjust (?:the )?(?:hotel|room|accommodation)\b", "accommodation on its own"),
+    (r"\bflights?\b|\bair ?tickets?\b", "flights"),
+    (r"\btrain tickets?\b", "train tickets"),
+    (r"\bvisa\b(?! card)", "a visa"),
+)
+
+
+def unpriced_service(text: str) -> str | None:
+    """The service a price question is about, when it is one we don't sell on its own."""
+    if not ASKS_PRICE.search(text):
+        return None
+    low = text.lower()
+    return next((name for pattern, name in SERVICES if re.search(pattern, low)), None)
 MAX_QUESTIONS = 3
 HISTORY = 8
 
@@ -81,17 +108,26 @@ class Deps:
         overrides.setdefault("session_scope", db_scope)
         return cls(today=overrides.pop("today", settings.mira_today), settings=settings,
                    rates=ds.rates, content=ds.content, brand=ds.brand,
-                   tours=catalog(ds.content, ds.rates), **overrides)
+                   tours=live_tours(ds.content, ds.rates), **overrides)
 
     def get_retriever(self):
-        if self.retriever is None:
+        if self.retriever is None:            # the shared one: re-indexed in place on publish (R8)
             from app.rag import get_retriever
-            self.retriever = get_retriever()
+            return get_retriever()
         return self.retriever
 
 
 def _last_human(state: MiraState) -> BaseMessage:
     return next(m for m in reversed(state["messages"]) if m.type == "human")
+
+
+CHILD_WORDS = re.compile(r"\b(child|children|kids?|son|sons|daughters?|bab(y|ies)|infants?|toddlers?|teens?|"
+                         r"teenagers?|boy|boys|girl|girls|\d{1,2}[- ]?(year|yr)s?[- ]?old)\b", re.IGNORECASE)
+
+
+def _mentions_child(state: MiraState) -> bool:
+    """True if the traveller has written about a child anywhere in this conversation."""
+    return any(CHILD_WORDS.search(str(m.content)) for m in state.get("messages") or [] if m.type == "human")
 
 
 def _flags(state: MiraState, *new: str) -> list[str]:
@@ -103,7 +139,10 @@ def _flags(state: MiraState, *new: str) -> list[str]:
 class Nodes:
     def __init__(self, deps: Deps):
         self.d = deps
-        self.by_id = {t.tour_id: t for t in deps.tours}
+
+    @property
+    def by_id(self) -> dict[str, CatalogTour]:
+        return {t.tour_id: t for t in self.d.tours}      # the live list: a published tour appears (R8)
 
     def _models(self, kind: str):
         """None = the real Gemini models (with the switch to the other one built in);
@@ -113,6 +152,23 @@ class Nodes:
             return None
         pair = [fast, strong] if kind == "fast" else [strong, fast]
         return [m for m in pair if m is not None]
+
+    # 17.3 ------------------------------------------------------------------------------
+    def load_visitor(self, state: MiraState) -> dict:
+        """First turn of a conversation only: start with what a returning visitor told us last
+        time (party, traveller type, interests), so Mira doesn't ask again (R2). The last quote
+        itself is re-priced by the welcome endpoint, never copied from the old row."""
+        if state.get("is_returning") is not None:
+            return {}
+        if self.d.session_scope is None or not state.get("visitor_id"):
+            return {"is_returning": False}
+        try:
+            with self.d.session_scope() as session:
+                known = known_slots(session, state["visitor_id"])
+        except Exception as exc:  # noqa: BLE001  (a database problem: start as a new visitor)
+            logger.error("load_visitor failed: %s", exc.__class__.__name__)
+            return {"is_returning": False}
+        return {k: v for k, v in known.items() if k == "is_returning" or not state.get(k)}
 
     # 8.2 -------------------------------------------------------------------------------
     def guard(self, state: MiraState, config: RunnableConfig) -> dict:
@@ -137,7 +193,7 @@ class Nodes:
                    trip=r.trip.model_dump(mode="json"))
         if r.injection_suspected:
             out["flags"] = ["injection"]
-        if out["intent"] == "injection" and (tid := match_tour(r.tour_mention, self.d.tours)):
+        if out["intent"] == "injection" and (tid := match_tour(r.tour_mention, self.d.tours, check.for_log)):
             out["selected_tour_id"] = tid          # only so the decline can offer a normal quote
         return out
 
@@ -152,7 +208,10 @@ class Nodes:
         out: dict = {}
 
         mention_now = state.get("tour_mention")
-        tid = match_tour(mention_now, self.d.tours) or match_tour(t.tour_mention, self.d.tours)
+        said = str(_last_human(state).content)
+        tid = match_tour(mention_now, self.d.tours, said) or match_tour(t.tour_mention, self.d.tours, said)
+        if not tid and not mention_now and not t.tour_mention and state["intent"] in {"quote", "book"}:
+            tid = product_match(t.interests or [], t.destinations or [], self.d.tours)
         if tid:
             out["selected_tour_id"] = tid
         elif (mention_now and state["intent"] in {"quote", "book", "custom_trip", "discovery"}
@@ -169,7 +228,9 @@ class Nodes:
             party = {**party, "child_ages": list(t.child_ages)}
         if party is not None:
             out["party"] = party
-        out["children_without_age"] = "child_ages" in t.missing and not (party and party["child_ages"])
+        # the LLM sometimes reads "we" or "family" as children; only a child actually mentioned counts
+        out["children_without_age"] = ("child_ages" in t.missing and not (party and party["child_ages"])
+                                       and _mentions_child(state))
         if t.interests:
             out["interests"] = t.interests
         if t.destinations:
@@ -216,6 +277,10 @@ class Nodes:
             return {"action": "off_topic"}
         if intent == "handoff":
             return {"action": "handoff", "flags": _flags(state, "handoff_requested")}
+        said = next((str(m.content) for m in reversed(state.get("messages") or []) if m.type == "human"), "")
+        if (service := unpriced_service(said)) and not match_tour(state.get("tour_mention"), self.d.tours, said):
+            return {"action": "handoff", "unpriced_service": service, "missing": [],
+                    "flags": _flags(state, "no_price", "unpriced_service")}
 
         out: dict = {}
         missing = self.missing_slots(state)
@@ -255,11 +320,17 @@ class Nodes:
                 "tour" in missing and (state.get("interests") or state.get("destinations")
                                        or state.get("duration_days"))):
             flags = ["custom_request"] if intent == "custom_trip" else []
-            res = {**out, "action": "match_tours", "flags": _flags(state, *flags)}
             others = [s for s in missing if s != "tour"]
             if others and asked < MAX_QUESTIONS:
-                res.update(question=replies.ask_question(others), questions_asked=asked + 1)
-            return res
+                # Still finding out about the trip: ask, and keep the tours, photos and offers
+                # for one organised answer once we know enough (or the 3 questions are used).
+                extra = [replies.TRIP_LENGTH] if "tour" in missing and not state.get("duration_days") else []
+                # the best matches are picked now (not shown), so "2 adults from 3 May" can be priced
+                ids = [c["tour_id"] for c in self._suggest(state)] if "tour" in missing else []
+                return {**out, "action": "ask", "flags": _flags(state, *flags),
+                        "question": replies.ask_question(others, extra), "questions_asked": asked + 1,
+                        **({"suggested_tour_ids": ids} if ids else {})}
+            return {**out, "action": "match_tours", "flags": _flags(state, *flags)}
 
         if missing:
             return ask_or_show()
@@ -283,26 +354,38 @@ class Nodes:
     # 8.8 -------------------------------------------------------------------------------
     def price(self, state: MiraState) -> dict:
         party = state["party"]
-        req = QuoteRequest(tour_id=state["selected_tour_id"], start_date=state["start_date"],
-                           adults=party["adults"], child_ages=tuple(party["child_ages"]))
-        res = calculate_quote(req, rates=self.d.rates, content=self.d.content, today=self.d.today,
-                              settings=self.d.settings)
+        # We chose the tour (the closest match): if it has no price for these dates, try the
+        # next match before giving up. A tour the traveller named is never swapped.
+        tours = [state["selected_tour_id"]]
+        if state.get("assumed_tour"):
+            tours += [t for t in state.get("suggested_tour_ids") or [] if t not in tours]
+        first: tuple | None = None
+        for tour_id in tours[:3]:
+            req = QuoteRequest(tour_id=tour_id, start_date=state["start_date"],
+                               adults=party["adults"], child_ages=tuple(party["child_ages"]))
+            res = calculate_quote(req, rates=self.d.rates, content=self.d.content, today=self.d.today,
+                                  settings=self.d.settings)
+            if res.status == "ok":
+                return {"quote_request": req.model_dump(mode="json"), "selected_tour_id": tour_id,
+                        "quote": res.staff.public.model_dump(mode="json")}   # PublicQuote only
+            first = first or (req, res)
+        req, res = first
         out: dict = {"quote_request": req.model_dump(mode="json")}
-        if res.status == "ok":
-            out["quote"] = res.staff.public.model_dump(mode="json")   # PublicQuote only
-            return out
         out["refusals"] = [{"code": r.code.value, "message": r.message_traveller} for r in res.reasons]
         out["flags"] = _flags(state, "no_price", *[r.code.value for r in res.reasons])
         return out
 
     # 8.9 -------------------------------------------------------------------------------
-    def match_tours(self, state: MiraState) -> dict:
+    def _suggest(self, state: MiraState) -> list[dict]:
         interests = list(state.get("interests") or [])
         if state.get("unmatched_tour"):
             interests.append(state["unmatched_tour"])      # "Adam's Peak climb" -> hill country
-        cards = suggest_tours(self.d.tours, interests=interests,
-                              destinations=state.get("destinations") or [],
-                              days=state.get("duration_days"), trip_type=state.get("trip_type"))
+        return suggest_tours(self.d.tours, interests=interests,
+                             destinations=state.get("destinations") or [],
+                             days=state.get("duration_days"), trip_type=state.get("trip_type"))
+
+    def match_tours(self, state: MiraState) -> dict:
+        cards = self._suggest(state)
         return {"tour_cards": cards, "suggested_tour_ids": [c["tour_id"] for c in cards]}
 
     # 8.10 ------------------------------------------------------------------------------
@@ -324,8 +407,8 @@ class Nodes:
         if q := state.get("quote"):
             facts.append("VERIFIED QUOTE (repeat exactly): " + replies.quote_text(q))
             if state.get("assumed_tour"):
-                facts.append("They didn't name a tour, so this is our closest match from the tours "
-                             "suggested earlier. Say so, and offer to price another.")
+                facts.append("They didn't name a tour, so this is the tour that fits their trip best. "
+                             "Say so, and offer to price one of the other matches shown.")
         for msg in dict.fromkeys(r["message"] for r in state.get("refusals") or []):
             facts.append(f"No price can be given: {msg}")
         if name := state.get("unmatched_tour"):
@@ -361,7 +444,8 @@ class Nodes:
                 task += " Also answer their other question from the sources."
             return task
         if action == "match_tours":
-            task = "Suggest the tours listed in the facts, one line each on why they fit."
+            task = ("Suggest the tours listed in the facts as a bullet list: one bullet per tour, "
+                    "**Tour name**: length and places, then why it fits in a few words.")
             return task + (f" Then ask: {question}" if question else "")
         return "Answer their question from the sources only."
 
@@ -377,11 +461,11 @@ class Nodes:
             return " ".join(dict.fromkeys(r["message"] for r in state.get("refusals") or [])) \
                 or replies.SPECIALIST_PRICE
         if action == "match_tours":
-            head = (f"We don't have a tour called \"{state['unmatched_tour']}\" in our programme. "
-                    "I can pass your request to our team. Meanwhile, these tours could suit you:"
+            head = (f"We don't have a tour called \"{state['unmatched_tour']}\" in our programme, "
+                    "but I can pass your request to our team. Meanwhile, these tours could suit you:"
                     if state.get("unmatched_tour") else "These tours could suit you:")
-            return "\n".join(filter(None, [head, replies.tour_list(state.get("tour_cards") or []),
-                                           question]))
+            return "\n\n".join(filter(None, [head, replies.tour_list(state.get("tour_cards") or []),
+                                             question]))
         if action == "retrieve" and state.get("retrieved"):
             c = state["retrieved"][0]
             return f"Here is what our {c['title']} page says: {c['text'][:400].strip()} [1]"
@@ -390,9 +474,16 @@ class Nodes:
     def _code_reply(self, state: MiraState) -> str:
         """Greeting, quote and refusal turns: fixed wording plus what the traveller raised."""
         parts = [self._fallback(state)]
-        if state.get("quote") and state.get("assumed_tour"):
-            parts.append("You didn't name a tour, so I priced our closest match. "
-                         "I can price any of the other suggestions too.")
+        if state.get("assumed_tour"):
+            name = self.by_id[state["selected_tour_id"]].name if state["selected_tour_id"] in self.by_id else None
+            if state.get("quote"):
+                parts.insert(0, f"The {name} fits your trip best, so I've priced it." if name
+                             else "I've priced the tour that fits your trip best.")
+                if len(state.get("suggested_tour_ids") or []) > 1:
+                    parts.append("Other tours that could suit you are below; I can price any of them too.")
+            elif state.get("suggested_tour_ids"):
+                parts.append("Here are the tours that fit your trip; a specialist can confirm a price "
+                             "for any of them.")
         flags = state.get("input_flags") or []
         if "discount_request" in flags:
             parts.append("I can't offer discounts in this chat.")
@@ -400,7 +491,7 @@ class Nodes:
             parts.append("I can't share our internal costs.")
         if state.get("quote"):
             parts.append("Would you like to book, or change the dates or travellers?")
-        return " ".join(parts)
+        return "\n\n".join(parts)
 
     def respond(self, state: MiraState, config: RunnableConfig) -> dict:
         action = state["action"]
@@ -412,6 +503,8 @@ class Nodes:
         if action == "off_topic":
             return {"response": replies.OFF_TOPIC, "citations": []}
         if action == "handoff":
+            if service := state.get("unpriced_service"):
+                return {"response": replies.service_price(service), "citations": []}
             return {"response": replies.HANDOFF, "citations": []}
         if action == "retrieve" and not state.get("retrieved"):
             return {"response": replies.UNKNOWN_INFO, "citations": []}
@@ -430,16 +523,22 @@ class Nodes:
             ans = invoke_structured(GroundedAnswer, msgs, kind="strong", model=self._models("strong"),
                                     config=config)
             text, cites = ans.answer.strip(), ans.citations
+            abstained = ans.abstained and action == "retrieve"
         except Exception as exc:  # noqa: BLE001 (no key, API down, junk twice)
             logger.warning("respond fell back to code wording: %s", exc.__class__.__name__)
-            text, cites = "", []
+            text, cites, abstained = "", [], False
         if not text:
             text = self._fallback(state)
+            if action == "retrieve" and state.get("retrieved"):
+                cites = [1]          # the fallback quotes the top page and marks it [1]
         q = state.get("quote")
         if q and q["price_usd"] not in amounts_in(text):
             text = replies.quote_text(q) + ("\n\n" + text if text else "")     # never lose the price
         n = len(state.get("retrieved") or [])
-        return {"response": text, "citations": sorted({c for c in cites if 1 <= c <= n})}
+        out = {"response": text, "citations": sorted({c for c in cites if 1 <= c <= n})}
+        if abstained:           # the pages found don't answer it: offer the team, as for no pages
+            out["abstain_reason"] = "not_in_sources"
+        return out
 
     # 8.11 ------------------------------------------------------------------------------
     def build_ui(self, state: MiraState) -> dict:
@@ -453,7 +552,7 @@ class Nodes:
         if rejected:
             flags = _flags({"flags": flags}, "ui_rejected")
         return {"response": checked.text, "ui": ui, "ui_rejected": rejected, "flags": flags,
-                "messages": [AIMessage(content=checked.text)]}
+                "messages": [AIMessage(content=checked.text)], "ui_log": [ui]}
 
     # 8.12 ------------------------------------------------------------------------------
     def persist(self, state: MiraState) -> dict:

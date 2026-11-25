@@ -4,12 +4,13 @@
       "additionalProperties": false,
       "properties": {
         "fields": {
+          "description": "card = the full mock card form: holder, type, number, expiry, security code",
           "items": {
             "enum": [
               "name",
               "email",
               "phone",
-              "card_number"
+              "card"
             ],
             "type": "string"
           },
@@ -35,6 +36,71 @@
       "title": "BookingForm",
       "type": "object"
     },
+    "Image": {
+      "additionalProperties": false,
+      "description": "A picture from our media library. Open-licence photos carry the credit the licence asks for.",
+      "properties": {
+        "alt": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Alt",
+          "type": "string"
+        },
+        "credit": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credit"
+        },
+        "licence": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Licence"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "pattern": "^https://commons\\.wikimedia\\.org/wiki/File:[^\\s<>\\\"']+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "src": {
+          "pattern": "^/api/v1/media/[a-z0-9-]+/[a-z0-9][a-z0-9.-]*\\.(?:jpg|jpeg|png|svg|webp)$",
+          "title": "Src",
+          "type": "string"
+        }
+      },
+      "required": [
+        "src",
+        "alt"
+      ],
+      "title": "Image",
+      "type": "object"
+    },
     "ItineraryDay": {
       "additionalProperties": false,
       "description": "One day of a tour's published itinerary (T07, T08, T09 have parsed days).",
@@ -50,6 +116,17 @@
           "minLength": 1,
           "title": "Description",
           "type": "string"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Image"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "meals": {
           "anyOf": [
@@ -108,6 +185,39 @@
         "source"
       ],
       "title": "ItineraryDay",
+      "type": "object"
+    },
+    "PhotoGallery": {
+      "additionalProperties": false,
+      "description": "Pictures of the places a planned or requested trip visits (chosen by code, never the LLM).",
+      "properties": {
+        "images": {
+          "items": {
+            "$ref": "#/$defs/Image"
+          },
+          "maxItems": 6,
+          "minItems": 1,
+          "title": "Images",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "photo_gallery",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "images"
+      ],
+      "title": "PhotoGallery",
       "type": "object"
     },
     "PriceBreakdown": {
@@ -313,6 +423,14 @@
           "title": "Highlights",
           "type": "array"
         },
+        "images": {
+          "items": {
+            "$ref": "#/$defs/Image"
+          },
+          "maxItems": 3,
+          "title": "Images",
+          "type": "array"
+        },
         "source": {
           "$ref": "#/$defs/SourceRef"
         },
@@ -453,6 +571,7 @@
     "mapping": {
       "booking_form": "#/$defs/BookingForm",
       "itinerary_day": "#/$defs/ItineraryDay",
+      "photo_gallery": "#/$defs/PhotoGallery",
       "price_breakdown": "#/$defs/PriceBreakdown",
       "source_list": "#/$defs/SourceList",
       "specialist_notice": "#/$defs/SpecialistNotice",
@@ -486,6 +605,9 @@
     },
     {
       "$ref": "#/$defs/WelcomeBack"
+    },
+    {
+      "$ref": "#/$defs/PhotoGallery"
     }
   ]
 }

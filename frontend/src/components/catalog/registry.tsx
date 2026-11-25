@@ -10,6 +10,7 @@ import { type ComponentOf, parseComponent, type UIComponent } from "@/lib/catalo
 
 import { BookingForm } from "./BookingForm";
 import { ItineraryDays } from "./ItineraryDays";
+import { PhotoGallery } from "./Photo";
 import { PriceBreakdown } from "./PriceBreakdown";
 import { SourceList } from "./SourceList";
 import { SpecialistNotice } from "./SpecialistNotice";
@@ -74,6 +75,8 @@ function renderOne(c: UIComponent, actions: Actions): ReactNode {
       return <SourceList {...c} />;
     case "welcome_back":
       return <WelcomeBack {...c} />;
+    case "photo_gallery":
+      return <PhotoGallery {...c} />;
     default:
       return null; // tour_card and itinerary_day are grouped; nothing else exists
   }
@@ -88,7 +91,7 @@ export function UIBlocks({ components, actions }: { components: unknown[]; actio
       {group(parsed).map((b, i) => (
         <Boundary key={i}>
           {b.kind === "tours" ? (
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap" aria-label="Tours">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3" aria-label="Tours">
               {b.cards.map((c) => (
                 <TourCard key={c.tour_id} {...c} actions={actions} showAction={!priced} />
               ))}

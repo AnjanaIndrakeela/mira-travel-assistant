@@ -7,9 +7,10 @@ import { Card } from "./ui";
 export function WelcomeBack({ tour_title, quote_id }: ComponentOf<"welcome_back">) {
   return (
     <div className="flex flex-col gap-3">
-      <Card label="Welcome back" accent="teal">
-        <h3 className="text-brand-md font-semibold">Welcome back</h3>
-        <p className="text-brand-sm">Last time you looked at the {tour_title}.</p>
+      <Card label="Welcome back" accent="teal" icon="sparkle" title="Welcome back" subtitle="Picking up where you left off">
+        <p className="text-brand-sm">
+          Last time you looked at the <span className="font-semibold">{tour_title}</span>.
+        </p>
       </Card>
       {quote_id && <PriceBreakdown quote_id={quote_id} />}
     </div>
