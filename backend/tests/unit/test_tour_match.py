@@ -61,3 +61,28 @@ def test_c_r05_old_page_is_not_priced_as_the_new_package(base, mention):
     assert out["quote"] is None or out["quote"].get("tour_id") != "T09"
     assert "USD 2,125" not in out["response"]
     assert "no_price" in out["flags"]
+
+
+# Eval S15: "Whale watching in Mirissa ... Price?" -- the LLM files "whale watching" as an
+# interest, so no tour was named and Mira listed options instead of pricing T05.
+@pytest.mark.parametrize("interests,places,tour", [
+    (["whale watching"], ["Mirissa"], "T05"),
+    (["whale watching"], [], "T05"),
+    (["wildlife"], [], None),                    # one word is too loose to name a tour
+    (["ancient cities"], [], None),              # no title has both words
+    (["culture", "wildlife"], [], None),
+])
+def test_product_match(base, interests, places, tour):
+    from app.graph.tours import product_match
+    assert product_match(interests, places, base.tours) == tour
+
+
+@pytest.mark.parametrize("text,child", [
+    ("2 adults, starting 3 May 2027.", False), ("We want to see the ancient cities", False),
+    ("2 adults and our 1-year-old baby", True), ("with our two kids", True),
+    ("my daughter is 8", True), ("a 10 year old", True),
+])
+def test_mentions_child(text, child):
+    from langchain_core.messages import HumanMessage
+    from app.graph.nodes import _mentions_child
+    assert _mentions_child({"messages": [HumanMessage(content=text)]}) is child

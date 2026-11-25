@@ -146,6 +146,24 @@ def match_tour(mention: str | None, tours: list[CatalogTour], context: str | Non
     return best
 
 
+def product_match(interests: list[str], destinations: list[str], tours: list[CatalogTour]) -> str | None:
+    """A tour named by an activity rather than its title ("whale watching in Mirissa" -> T05).
+
+    The LLM files such words as an interest, not a tour mention. Used only for an explicit
+    price request with no tour named, and strict: at least two words, every one of them in a
+    single current tour's title, and only one tour may fit.
+    """
+    phrases = [f"{i} {' '.join(destinations)}" for i in interests if destinations] + list(interests)
+    for phrase in phrases:
+        want = set(_words(phrase))
+        if len(want) < 2:
+            continue
+        fits = [t.tour_id for t in tours if not t.stale and want <= t.words]
+        if len(fits) == 1:
+            return fits[0]
+    return None
+
+
 def traveller_type(party: Party | None) -> TravellerType | None:
     """Decided by code from the party (step 8.4), never by the LLM."""
     if not party:

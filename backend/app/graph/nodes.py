@@ -32,7 +32,8 @@ from app.visitors import known_slots
 from app.graph.prompts import load_prompt, system_prompt
 from app.graph.state import PER_TURN_DEFAULTS, MiraState, Slot
 from app.graph.quick_parse import quick_analysis
-from app.graph.tours import CatalogTour, is_place, live_tours, match_tour, suggest_tours, traveller_type
+from app.graph.tours import (CatalogTour, is_place, live_tours, match_tour, product_match, suggest_tours,
+                             traveller_type)
 from app.guards.input_guard import check_input
 from app.guards.ui_validator import validate_ui
 from app.guards.output_guard import amounts_in, check_output
@@ -120,6 +121,15 @@ def _last_human(state: MiraState) -> BaseMessage:
     return next(m for m in reversed(state["messages"]) if m.type == "human")
 
 
+CHILD_WORDS = re.compile(r"\b(child|children|kids?|son|sons|daughters?|bab(y|ies)|infants?|toddlers?|teens?|"
+                         r"teenagers?|boy|boys|girl|girls|\d{1,2}[- ]?(year|yr)s?[- ]?old)\b", re.IGNORECASE)
+
+
+def _mentions_child(state: MiraState) -> bool:
+    """True if the traveller has written about a child anywhere in this conversation."""
+    return any(CHILD_WORDS.search(str(m.content)) for m in state.get("messages") or [] if m.type == "human")
+
+
 def _flags(state: MiraState, *new: str) -> list[str]:
     out = list(state.get("flags") or [])
     out += [f for f in new if f not in out]
@@ -200,6 +210,8 @@ class Nodes:
         mention_now = state.get("tour_mention")
         said = str(_last_human(state).content)
         tid = match_tour(mention_now, self.d.tours, said) or match_tour(t.tour_mention, self.d.tours, said)
+        if not tid and not mention_now and not t.tour_mention and state["intent"] in {"quote", "book"}:
+            tid = product_match(t.interests or [], t.destinations or [], self.d.tours)
         if tid:
             out["selected_tour_id"] = tid
         elif (mention_now and state["intent"] in {"quote", "book", "custom_trip", "discovery"}
@@ -216,7 +228,9 @@ class Nodes:
             party = {**party, "child_ages": list(t.child_ages)}
         if party is not None:
             out["party"] = party
-        out["children_without_age"] = "child_ages" in t.missing and not (party and party["child_ages"])
+        # the LLM sometimes reads "we" or "family" as children; only a child actually mentioned counts
+        out["children_without_age"] = ("child_ages" in t.missing and not (party and party["child_ages"])
+                                       and _mentions_child(state))
         if t.interests:
             out["interests"] = t.interests
         if t.destinations:
@@ -514,6 +528,8 @@ class Nodes:
             text, cites = "", []
         if not text:
             text = self._fallback(state)
+            if action == "retrieve" and state.get("retrieved"):
+                cites = [1]          # the fallback quotes the top page and marks it [1]
         q = state.get("quote")
         if q and q["price_usd"] not in amounts_in(text):
             text = replies.quote_text(q) + ("\n\n" + text if text else "")     # never lose the price

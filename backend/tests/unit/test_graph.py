@@ -276,6 +276,18 @@ def test_info_question_is_answered_with_citations(base):
     assert retr.queries[0][1] == "T04"
 
 
+def test_fallback_answer_keeps_its_source(base):
+    """Eval C-G03/C-G04/C-G05: when Gemini fails, the code answer quotes the top page as [1];
+    that page must still be cited and shown as a source."""
+    model = FakeModel(RouterDecision=[R("policy", retrieval=True)], TripDetails=[T()],
+                      GroundedAnswer=[RuntimeError("down"), RuntimeError("down"), RuntimeError("down")])
+    retr = FakeRetriever(Retrieved(query="q", chunks=[chunk()], abstain=False))
+    out = turn(make(base, model, retr), "What's your cancellation policy?")
+    assert out["response"].startswith("Here is what our Cancellation policy page says")
+    assert out["citations"] == [1]
+    assert any(c["type"] == "source_list" for c in out["ui"])
+
+
 def test_abstain_offers_a_specialist(base):
     model = FakeModel(RouterDecision=[R("tour_info", retrieval=True)], TripDetails=[T()])
     retr = FakeRetriever(Retrieved(query="q", chunks=[], abstain=True, reason="no_date_info"))
