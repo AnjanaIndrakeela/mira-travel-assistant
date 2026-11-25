@@ -71,7 +71,7 @@ This runs about 920 unit, API and database tests, including the pricing engine's
 
 Both halves run on **Vercel** as two projects from this repository, and the database is a free **Neon** Postgres. No paid plan or card is needed.
 
-- **Backend** (Root Directory `backend`): the whole FastAPI app is one Python function ([backend/api/index.py](backend/api/index.py), [backend/vercel.json](backend/vercel.json)). Vercel installs only `requirements.txt`; the local server and the optional DeepSeek and Ollama clients are in `requirements-local.txt`.
+- **Backend** (Root Directory `backend`): Vercel's FastAPI preset finds [backend/app/main.py](backend/app/main.py) and sends every request to it, as one Python function ([backend/vercel.json](backend/vercel.json) sets its time limit). Vercel installs only `requirements.txt` (pinned to the locally tested versions); the local server and the optional DeepSeek and Ollama clients are in `requirements-local.txt`. The search index built locally ships in `backend/prebuilt/index/`, so a cold start loads it instead of re-embedding the content.
 - **Frontend** (Root Directory `frontend`): the browser only ever talks to this site. Next forwards `/api/v1/*` to the backend ([frontend/next.config.ts](frontend/next.config.ts)), so the staff sign-in cookie is first-party and no CORS setup is needed.
 
 A copy of the dataset is in `backend/data/ceylon-compass-dataset/`, so the backend carries it. `.gitattributes` keeps it byte-for-byte identical, and the startup integrity check still passes.

@@ -1,19 +1,20 @@
 # Mira backend runtime dependencies (Python 3.12). This is what Vercel installs; the local
 # server and the optional DeepSeek / Ollama clients are in requirements-local.txt.
-fastapi>=0.115
-pydantic>=2.9
-pydantic-settings>=2.5
-sqlalchemy>=2.0
-psycopg[binary]>=3.2
-openpyxl>=3.1
-python-frontmatter>=1.1
-langgraph>=0.2
-langgraph-checkpoint-postgres>=3.2
-langchain-core>=0.3
-langchain-google-genai>=2.0
-google-genai>=1.0
-faiss-cpu>=1.8
-rank-bm25>=0.2.2
-langfuse>=2.50
-httpx>=0.27
-numpy>=1.26
+# Pinned to the versions tested locally, so the hosted build matches.
+fastapi==0.165.0
+pydantic==2.14.4
+pydantic-settings==2.16.3
+sqlalchemy==2.1.9
+psycopg[binary]==3.3.9
+openpyxl==3.1.5
+python-frontmatter==1.3.0
+langgraph==1.2.24
+langgraph-checkpoint-postgres==3.2.1
+langchain-core==1.8.4
+langchain-google-genai==4.5.2
+google-genai==3.6.1
+faiss-cpu==1.16.0
+rank-bm25==0.2.2
+langfuse==5.2.0
+httpx==0.28.1
+numpy==2.5.5

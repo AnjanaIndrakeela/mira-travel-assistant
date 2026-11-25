@@ -20,13 +20,16 @@ from pathlib import Path
 import faiss
 import numpy as np
 
-from app.core.config import VAR_DIR
+from app.core.config import BACKEND_DIR, VAR_DIR
 from app.rag.chunker import Chunk
 from app.rag.embeddings import embed_documents, model_id
 
 logger = logging.getLogger("mira.index")
 
 INDEX_DIR = VAR_DIR / "index"
+# A copy built locally and shipped with the code: hosts with an empty disk on each cold start
+# (Vercel) load it instead of re-embedding every chunk. Used only when its fingerprint matches.
+PREBUILT_DIR = BACKEND_DIR / "prebuilt" / "index"
 
 
 def fingerprint(chunks: list[Chunk], model: str) -> str:
@@ -81,6 +84,9 @@ def load_or_build(chunks: list[Chunk], folder: Path = INDEX_DIR, *, rebuild: boo
     fp = fingerprint(chunks, model or model_id())
     if not rebuild and (store := VectorStore.load(folder)) and store.fingerprint == fp:
         logger.info("Vector index loaded, fingerprint unchanged (%d chunks)", len(chunks))
+        return store, "loaded"
+    if folder == INDEX_DIR and (store := VectorStore.load(PREBUILT_DIR)) and store.fingerprint == fp:
+        logger.info("Vector index loaded from the prebuilt copy (%d chunks)", len(chunks))
         return store, "loaded"
     t0 = time.perf_counter()
     store = VectorStore.build(chunks, embed, model)

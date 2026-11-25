@@ -1,2 +1,3 @@
 # The dataset copy must stay byte-for-byte identical (its hashes are checked at startup).
 backend/data/** -text
+backend/prebuilt/** -text

@@ -1,6 +1,7 @@
 """FastAPI entry point for Mira."""
 
 import logging
+import re
 import threading
 from collections import Counter
 from contextlib import asynccontextmanager
@@ -68,7 +69,9 @@ def _startup(app: FastAPI) -> None:
             if n := load_published(session):
                 logger.info("Content items published by approvers: %d added to the library", n)
     except Exception as exc:  # noqa: BLE001
-        logger.error("Database setup skipped: %s", exc.__class__.__name__)
+        # The driver message says why (host unreachable, SSL, auth). Any user:password is removed.
+        detail = re.sub(r"://[^@\s]+@", "://***@", str(getattr(exc, "orig", None) or exc).splitlines()[0])[:200]
+        logger.error("Database setup skipped: %s: %s", exc.__class__.__name__, detail)
 
     # Content index (R4): loads from backend/var/index/, embeds only if the content changed.
     # Without a Gemini key the app still starts; /health then reports index "unavailable".

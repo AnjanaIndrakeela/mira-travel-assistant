@@ -27,6 +27,8 @@ logger = logging.getLogger("mira.embeddings")
 
 BATCH = 50
 QUERY_CACHE = VAR_DIR / "index" / "query_cache.json"
+# Shipped with the code (see app.rag.index.PREBUILT_DIR): read when QUERY_CACHE does not exist yet.
+PREBUILT_QUERY_CACHE = Path(__file__).resolve().parents[2] / "prebuilt" / "index" / "query_cache.json"
 _lock = threading.Lock()
 
 
@@ -54,6 +56,12 @@ def normalise(v: np.ndarray) -> np.ndarray:
     return v / np.where(norms == 0, 1, norms)
 
 
+def _describe(exc: Exception) -> str:
+    """Error class plus the HTTP status and reason the API gave (never the request or key)."""
+    code, status = getattr(exc, "code", None), getattr(exc, "status", None)
+    return " ".join(str(x) for x in (exc.__class__.__name__, code, status) if x)
+
+
 def _embed(texts: list[str], task: str, retries: int = 3) -> np.ndarray:
     from google.genai import types
     s = get_settings()
@@ -70,7 +78,7 @@ def _embed(texts: list[str], task: str, retries: int = 3) -> np.ndarray:
                 break
             except Exception as exc:  # noqa: BLE001
                 if attempt == retries - 1:
-                    raise EmbeddingUnavailable(f"embedding failed: {exc.__class__.__name__}") from exc
+                    raise EmbeddingUnavailable(f"embedding failed: {_describe(exc)}") from exc
                 time.sleep(2 ** attempt)
         if len(r.embeddings) != len(batch):
             raise EmbeddingUnavailable(f"asked for {len(batch)} vectors, got {len(r.embeddings)}")
@@ -90,10 +98,12 @@ def _key(text: str) -> str:
 
 @lru_cache
 def _disk_cache() -> dict[str, list[float]]:
-    try:
-        return json.loads(QUERY_CACHE.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+    for path in (QUERY_CACHE, PREBUILT_QUERY_CACHE):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            continue
+    return {}
 
 
 def _save_cache() -> None:
