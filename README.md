@@ -67,36 +67,37 @@ docker compose exec backend python -m pytest
 
 This runs about 920 unit, API and database tests, including the pricing engine's tests against the workbook's sample quotes. Tests that call Gemini are marked `live` and skipped by default (`python -m pytest -m live`).
 
-## Hosting (Vercel + Render)
+## Hosting (Vercel + Neon)
 
-The frontend runs on **Vercel**. The backend and its Postgres run on **Render**, from [render.yaml](render.yaml). The browser only ever talks to the Vercel site: Next forwards `/api/v1/*` to the backend ([frontend/next.config.ts](frontend/next.config.ts)). So the staff sign-in cookie is first-party and no CORS setup is needed.
+Both halves run on **Vercel** as two projects from this repository, and the database is a free **Neon** Postgres. No paid plan or card is needed.
 
-A copy of the dataset is in `backend/data/ceylon-compass-dataset/`, so the backend image carries it. `.gitattributes` keeps it byte-for-byte identical, and the startup integrity check still passes.
+- **Backend** (Root Directory `backend`): the whole FastAPI app is one Python function ([backend/api/index.py](backend/api/index.py), [backend/vercel.json](backend/vercel.json)). Vercel installs only `requirements.txt`; the local server and the optional DeepSeek and Ollama clients are in `requirements-local.txt`.
+- **Frontend** (Root Directory `frontend`): the browser only ever talks to this site. Next forwards `/api/v1/*` to the backend ([frontend/next.config.ts](frontend/next.config.ts)), so the staff sign-in cookie is first-party and no CORS setup is needed.
 
-**1. Backend on Render**
+A copy of the dataset is in `backend/data/ceylon-compass-dataset/`, so the backend carries it. `.gitattributes` keeps it byte-for-byte identical, and the startup integrity check still passes.
 
-1. Push the branch to GitHub.
-2. In Render, choose **New > Blueprint**, pick this repository, and apply `render.yaml`. This creates `mira-backend` (Docker, free plan) and `mira-db` (Postgres, free plan).
-3. When asked, fill in the values marked `sync: false`: the Gemini key and models, the price margins, the staff and approver logins, Langfuse (optional), and `FRONTEND_ORIGIN`. Use your Vercel address for `FRONTEND_ORIGIN`, or a placeholder for now and update it after step 2.
-4. Wait for the deploy, then open `https://<your-backend>.onrender.com/api/v1/health`. It should show `"database": "ok"` and `"dataset_integrity": "ok"`.
+**1. Database on Neon**
 
-**2. Frontend on Vercel**
+Create a project (Postgres 16) and copy its connection string.
 
-1. In Vercel, choose **Add New > Project** and import the repository. Set **Root Directory** to `frontend`; the framework is detected as Next.js.
-2. Add these environment variables (Production and Preview):
+**2. Backend on Vercel**
 
-   | Name | Value |
-   |---|---|
-   | `NEXT_PUBLIC_API_URL` | `/api/v1` |
-   | `BACKEND_ORIGIN` | `https://<your-backend>.onrender.com` |
+1. **Add New > Project**, import the repository, set **Root Directory** to `backend`.
+2. Add the environment variables: `DATABASE_URL` (the Neon string), `GEMINI_API_KEY`, `GEMINI_MODEL_FAST`, `GEMINI_MODEL_STRONG`, `GEMINI_EMBEDDING_MODEL`, `GEMINI_EMBEDDING_DIMS`, `LLM_PROVIDER=gemini`, `MIRA_TODAY=2026-11-19`, `MIRA_COOKIE_SECURE=1`, the staff and approver logins, and Langfuse (optional).
+3. Deploy, then open `https://<backend>.vercel.app/api/v1/health`. It should show `"database": "ok"` and `"dataset_integrity": "ok"`.
 
-3. Deploy, then set `FRONTEND_ORIGIN` on Render to the Vercel address.
+**3. Frontend on Vercel**
+
+1. **Add New > Project**, import the same repository, set **Root Directory** to `frontend`.
+2. Add `NEXT_PUBLIC_API_URL` = `/api/v1` and `BACKEND_ORIGIN` = `https://<backend>.vercel.app`, then deploy.
+3. Set `FRONTEND_ORIGIN` on the backend project to the frontend address.
 
 **Things to know:**
 
-- On the free plan, the Render backend sleeps after 15 minutes without traffic. The first message after that takes about a minute while it wakes up.
-- Render's free Postgres expires 30 days after it is created.
-- The search index is rebuilt with Gemini embeddings each time the backend starts, because the free plan has no persistent disk. This takes a few seconds.
+- On Vercel the disk is read-only except `/tmp`, so the search index lives in `/tmp/mira` and is rebuilt with Gemini embeddings when a new instance starts. The first request after that takes a few seconds.
+- The app starts on its first request if the host skips FastAPI's startup hook.
+- A reply can run for up to 300 seconds (`maxDuration` in `vercel.json`).
+- [render.yaml](render.yaml) is an alternative for Render, which needs a card on file even for its free plan.
 
 ## Architecture
 

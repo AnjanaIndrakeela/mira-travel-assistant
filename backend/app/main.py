@@ -1,11 +1,13 @@
 """FastAPI entry point for Mira."""
 
 import logging
+import threading
 from collections import Counter
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 
 from app.api.bookings import router as bookings_router
 from app.api.chat import router as chat_router
@@ -32,8 +34,20 @@ logger = logging.getLogger("mira")
 settings = get_settings()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+_started = threading.Lock()
+
+
+def startup(app: FastAPI) -> None:
+    """Load the dataset, prepare the database and the search index. Runs once per process:
+    from the lifespan hook, or (on serverless hosts that skip it) from the first request."""
+    with _started:
+        if getattr(app.state, "ready", False):
+            return
+        _startup(app)
+        app.state.ready = True
+
+
+def _startup(app: FastAPI) -> None:
     # Check the dataset is unchanged, then load it once (read-only) for the whole app.
     integrity = verify()
     (logger.info if integrity.ok else logger.error)(integrity.summary())
@@ -63,6 +77,11 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001
         app.state.retriever = None
         logger.warning("Content index unavailable: %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await run_in_threadpool(startup, app)
     yield
 
 
@@ -77,6 +96,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def ensure_started(request, call_next):
+    """Serverless hosts may not run the lifespan hook: start on the first request instead."""
+    if not getattr(app.state, "ready", False):
+        await run_in_threadpool(startup, app)
+    return await call_next(request)
+
 
 install_error_handlers(app)
 for r in (health_router, chat_router, quotes_router, enquiries_router, tours_router, bookings_router,

@@ -21,12 +21,12 @@ from pathlib import Path
 
 import numpy as np
 
-from app.core.config import BACKEND_DIR, get_settings
+from app.core.config import VAR_DIR, get_settings
 
 logger = logging.getLogger("mira.embeddings")
 
 BATCH = 50
-QUERY_CACHE = BACKEND_DIR / "var" / "index" / "query_cache.json"
+QUERY_CACHE = VAR_DIR / "index" / "query_cache.json"
 _lock = threading.Lock()
 
 

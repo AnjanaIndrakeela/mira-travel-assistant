@@ -20,13 +20,13 @@ from pathlib import Path
 import faiss
 import numpy as np
 
-from app.core.config import BACKEND_DIR
+from app.core.config import VAR_DIR
 from app.rag.chunker import Chunk
 from app.rag.embeddings import embed_documents, model_id
 
 logger = logging.getLogger("mira.index")
 
-INDEX_DIR = BACKEND_DIR / "var" / "index"
+INDEX_DIR = VAR_DIR / "index"
 
 
 def fingerprint(chunks: list[Chunk], model: str) -> str:

@@ -4,6 +4,7 @@ Everything that changes between environments (dates, paths, keys, overrides) liv
 so the rest of the code never reads os.environ directly.
 """
 
+import os
 from datetime import date
 from decimal import Decimal
 from functools import lru_cache
@@ -15,6 +16,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]  # .../Mira/backend
 REPO_ROOT = BACKEND_DIR.parent  # .../Mira
+
+# Where the app writes its own files (the search index and query cache). Serverless hosts such
+# as Vercel only allow writes under /tmp.
+VAR_DIR = Path(os.environ.get("MIRA_VAR_DIR") or ("/tmp/mira" if os.environ.get("VERCEL") else BACKEND_DIR / "var"))
 
 
 def _default_dataset_dir() -> Path:

@@ -1,0 +1,5 @@
+# Running the backend yourself (Docker): the ASGI server and the optional LLM clients.
+-r requirements.txt
+uvicorn[standard]>=0.30
+langchain-deepseek>=1.2
+langchain-ollama>=1.2

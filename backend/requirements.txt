@@ -1,6 +1,6 @@
-# Mira backend runtime dependencies (Python 3.12)
+# Mira backend runtime dependencies (Python 3.12). This is what Vercel installs; the local
+# server and the optional DeepSeek / Ollama clients are in requirements-local.txt.
 fastapi>=0.115
-uvicorn[standard]>=0.30
 pydantic>=2.9
 pydantic-settings>=2.5
 sqlalchemy>=2.0
@@ -11,8 +11,6 @@ langgraph>=0.2
 langgraph-checkpoint-postgres>=3.2
 langchain-core>=0.3
 langchain-google-genai>=2.0
-langchain-deepseek>=1.2
-langchain-ollama>=1.2
 google-genai>=1.0
 faiss-cpu>=1.8
 rank-bm25>=0.2.2
