@@ -54,6 +54,7 @@ export const TourCard = z.strictObject({
   start: text(120).nullable().default(null),
   highlights: z.array(text(160)).max(4).default([]),
   why: text(200).nullable().default(null),
+  hotels: z.array(text(160)).max(10).default([]),
   accent: z.enum(accents),
   bookable: z.boolean(),
   source: sourceRef,
@@ -122,6 +123,25 @@ export const PhotoGallery = z.strictObject({
   images: z.array(image).min(1).max(6),
 });
 
+export const TripPlan = z.strictObject({
+  type: z.literal("trip_plan"),
+  title: text(120),
+  overview: text(1200),
+  days: z
+    .array(
+      z.strictObject({
+        day: z.number().int().min(1).max(14),
+        title: text(160),
+        description: text(1200),
+        stay: text(160).nullable().default(null),
+      }),
+    )
+    .min(1)
+    .max(14),
+  sources: z.array(sourceRef).max(8).default([]),
+  images: z.array(image).max(3).default([]),
+});
+
 export const UIComponentSchema = z.discriminatedUnion("type", [
   TravellerPicker,
   TourCard,
@@ -132,6 +152,7 @@ export const UIComponentSchema = z.discriminatedUnion("type", [
   SourceList,
   WelcomeBack,
   PhotoGallery,
+  TripPlan,
 ]);
 
 export type UIComponent = z.infer<typeof UIComponentSchema>;
@@ -148,6 +169,7 @@ export const catalog = {
   source_list: SourceList,
   welcome_back: WelcomeBack,
   photo_gallery: PhotoGallery,
+  trip_plan: TripPlan,
 } as const;
 
 /** Parse one payload from the server; null (and a console warning) if it isn't in the catalog. */

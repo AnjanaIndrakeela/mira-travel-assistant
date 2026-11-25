@@ -32,11 +32,33 @@ def _uuid(value: Any) -> uuid.UUID | None:
         return None
 
 
+def plan_text(plan: dict, state: dict) -> str:
+    """The draft plan as staff read it on the enquiry."""
+    party = state.get("party") or {}
+    kids = party.get("child_ages") or []
+    who = (f"{party['adults']} adult(s)" + (f", children aged {', '.join(map(str, kids))}" if kids else "")
+           if party else "not given")
+    lines = [f"Draft plan written by Mira (not priced, not checked): {plan['title']}",
+             f"Travellers: {who}. Start: {state.get('start_date') or 'not given'}.",
+             plan["overview"], ""]
+    lines += [f"Day {d['day']}: {d['title']} - {d['description']}"
+              + (f" Stay: {d['stay']}." if d.get("stay") else "") for d in plan["days"]]
+    lines += ["", "Sources: " + ", ".join(s["doc_id"] for s in plan.get("sources") or [])]
+    return "\n".join(lines)[:4000]
+
+
 def persist_turn(session: Session, state: dict, deps) -> dict:
     conversation_id = _uuid(state.get("conversation_id"))
     trace_id = state.get("trace_id")
     flags = [f for f in state.get("flags") or [] if f not in NOISE_FLAGS]
     out: dict = {}
+
+    if (state.get("plan_shown") and (plan := state.get("trip_plan")) and state.get("trip_plan_key")
+            and state.get("saved_plan_key") != state["trip_plan_key"]):
+        # the planner agent's draft goes to staff to confirm and price, never live on its own
+        enquiry = create_enquiry(session, "custom", conversation_id=conversation_id, trace_id=trace_id,
+                                 flags=["generated_plan", "no_price"], notes=plan_text(plan, state))
+        out.update(plan_enquiry_id=str(enquiry.id), saved_plan_key=state["trip_plan_key"])
 
     if req := state.get("quote_request"):
         result = calculate_quote(QuoteRequest(**req), rates=deps.rates, content=deps.content,
@@ -48,6 +70,9 @@ def persist_turn(session: Session, state: dict, deps) -> dict:
                                  if state.get("assumed_tour") else None)
         out.update(quote_id=str(quote.id), enquiry_id=str(enquiry.id))
         remember(session, state.get("visitor_id"), state, quote.id)        # R2
+        return out
+    if "plan_enquiry_id" in out:
+        remember(session, state.get("visitor_id"), state)
         return out
 
     remember(session, state.get("visitor_id"), state)

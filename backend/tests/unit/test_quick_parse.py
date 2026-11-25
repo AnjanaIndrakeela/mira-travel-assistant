@@ -176,7 +176,7 @@ def test_days(text, days):
 def test_planner_with_gemini_down_suggests_tours(base):
     out = turn(make(base, down()), "We'd like about 10 days of beaches and wildlife, 2 adults, from 5 March "
                                    "2027. What do you suggest?")
-    assert out["action"] == "match_tours" and len(out["tour_cards"]) == 3
+    assert out["action"] == "match_tours" and len(out["tour_cards"]) == 1        # the best plan only
     assert out["duration_days"] == 10 and {"beaches", "wildlife"} <= set(out["interests"])
     assert any(c["type"] == "specialist_notice" and c["reason"] == "custom_plan" for c in out["ui"])
 

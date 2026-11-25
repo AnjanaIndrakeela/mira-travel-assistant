@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { ApiError, book, type BookingResult } from "@/lib/api";
+import { ApiError, book, type BookingResult, type HotelStay } from "@/lib/api";
 import { BRANDS, brandInfo, type Brand, type CardField, checkCard, digitsOf, formatExpiry, formatNumber, guessBrand, TEST_CARDS, toPayload } from "@/lib/card";
 import { brand as site } from "@/lib/brand";
 import type { ComponentOf } from "@/lib/catalog-schema";
@@ -96,6 +96,7 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
               {result.payment_reference && <Chip icon="tag">Ref {result.payment_reference}</Chip>}
             </div>
           )}
+          {result.hotels && result.hotels.length > 0 && <HotelStays stays={result.hotels} />}
           <div className="rounded-xl bg-accent-leaf/[0.07] p-3 ring-1 ring-accent-leaf/20">
             <p className="mb-1.5 text-brand-xs font-semibold uppercase tracking-wide text-accent-leaf">What happens next</p>
             <ul className="flex flex-col gap-1.5 text-brand-sm">
@@ -262,5 +263,32 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
         </form>
       )}
     </Card>
+  );
+}
+
+/** "2027-04-12" -> "12 Apr" (dates from the server are plain ISO dates). */
+function shortDate(iso: string, year = false) {
+  const d = new Date(`${iso}T00:00:00`);
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(year ? { year: "numeric" } : {}) });
+}
+
+/** The hotels booked with the tour, stay by stay, each with its own confirmation number. */
+function HotelStays({ stays }: { stays: HotelStay[] }) {
+  return (
+    <div className="rounded-xl bg-ink/[0.025] p-3 ring-1 ring-line/70">
+      <p className="mb-2 flex items-center gap-1.5 text-brand-xs font-semibold uppercase tracking-wide text-muted">
+        <Icon name="bed" className="h-3.5 w-3.5" /> Hotels booked
+      </p>
+      <ul className="flex flex-col gap-2.5">
+        {stays.map((s) => (
+          <li key={s.reference} className="text-brand-sm">
+            <p className="font-semibold leading-snug">{s.hotel}</p>
+            <p className="text-brand-xs text-muted">
+              {shortDate(s.check_in)} to {shortDate(s.check_out, true)} · {s.nights} night{s.nights > 1 ? "s" : ""} · {s.rooms} · Ref {s.reference}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

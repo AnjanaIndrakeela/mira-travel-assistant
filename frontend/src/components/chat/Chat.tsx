@@ -111,7 +111,8 @@ export function Chat() {
     }
   }, []);
 
-  // "New chat": a clean thread. The server starts a new conversation with the next message.
+  // "New chat": a clean thread. The old chat is deleted on the server; a new conversation
+  // starts with the next message.
   // (The "welcome back" with the last trip is for opening the site, not for a new chat.)
   function startOver() {
     ids.startOver();

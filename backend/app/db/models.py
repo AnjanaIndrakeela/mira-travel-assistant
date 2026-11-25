@@ -162,6 +162,26 @@ class Booking(Base):
     created_at: Mapped[datetime] = _created()
 
 
+class HotelReservation(Base):
+    """A hotel stay booked with a confirmed tour booking (mock): from the rate sheet's hotel for
+    each night of the tour, rooms as priced. One row per stay (consecutive nights in one hotel)."""
+
+    __tablename__ = "hotel_reservations"
+
+    id: Mapped[uuid.UUID] = _id()
+    booking_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("bookings.id", ondelete="CASCADE"),
+                                                  index=True, nullable=False)
+    hotel_id: Mapped[str] = mapped_column(String(20), nullable=False)
+    hotel_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    check_in: Mapped[date] = mapped_column(Date, nullable=False)
+    check_out: Mapped[date] = mapped_column(Date, nullable=False)
+    nights: Mapped[int] = mapped_column(Integer, nullable=False)
+    rooms: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="confirmed", nullable=False)
+    reference: Mapped[str] = mapped_column(String(20), nullable=False)    # mock confirmation number
+    created_at: Mapped[datetime] = _created()
+
+
 # ------------------------------------------------------------------ 5.7 users (staff)
 
 class User(Base):

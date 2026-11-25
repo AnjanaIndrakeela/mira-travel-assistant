@@ -246,6 +246,25 @@ def test_graph_failure_is_a_polite_handoff(api, db, monkeypatch):
     assert "chat_error" in enquiry.flags and "a@b.com" not in (enquiry.notes or "")
 
 
+def test_new_chat_deletes_the_old_one_but_keeps_staff_records(api, db):
+    """"New chat" deletes the old chat (only its own visitor can); its quote and enquiry stay."""
+    from app.db.models import Conversation, Enquiry, Quote
+    api.use(FakeModel(RouterDecision=[R("quote", "Cultural Triangle package")],
+                      TripDetails=[T(adults=2, tour_mention="Cultural Triangle package",
+                                     start_date=date(2027, 4, 12))]))
+    body = api.chat("The Cultural Triangle package from 12 April 2027 for 2 adults.").json()
+    cid, vid = body["conversation_id"], body["visitor_id"]
+    url = f"/api/v1/conversations/{cid}"
+    assert api.client.delete(url, params={"visitor_id": str(uuid.uuid4())}).status_code == 404   # not theirs
+    assert api.client.delete(url, params={"visitor_id": vid}).status_code == 204
+    assert api.client.get(url).status_code == 404
+    db.expire_all()
+    assert db.get(Conversation, uuid.UUID(cid)) is None
+    quote = db.get(Quote, uuid.UUID(body["quote_id"]))
+    assert quote is not None and quote.conversation_id is None
+    assert db.get(Enquiry, uuid.UUID(body["enquiry_id"])).conversation_id is None
+
+
 def test_unknown_conversation_starts_a_new_one(api):
     api.use(FakeModel(RouterDecision=[R("out_of_scope")]))
     missing = uuid.uuid4()
@@ -341,6 +360,31 @@ def test_booking_succeeds(api, db):
     assert enquiry.contact["email"] == CONTACT["email"] and "Booked (mock)" in enquiry.notes
     again = book(api, quote.id)
     assert again.status_code == 409 and again.json()["error"] == "conflict"
+
+
+def test_booking_a_tour_books_its_hotels_too(api, db):
+    """Each stay from the rate sheet (consecutive nights in one hotel = one stay), rooms as priced."""
+    from app.db.models import HotelReservation
+    from sqlalchemy import select
+    api.use(FakeModel(RouterDecision=[R("quote", "Cultural Triangle package")],
+                      TripDetails=[T(adults=2, child_ages=[7, 10], tour_mention="Cultural Triangle package",
+                                     start_date=date(2027, 4, 12))]))
+    quote_id = api.chat("The Cultural Triangle package from 12 April 2027, 2 adults and kids aged 7 and 10.").json()["quote_id"]
+    body = book(api, quote_id).json()
+    assert body["status"] == "confirmed" and body["hotels"] and "hotel stay" in body["message"]
+    stays = body["hotels"]
+    assert stays[0]["check_in"] == "2027-04-12" and sum(s["nights"] for s in stays) == 6   # T09: 7 days, 6 nights
+    assert all(a["check_out"] == b["check_in"] for a, b in zip(stays, stays[1:]))           # no gaps
+    assert all(s["rooms"] == "1 double + 2 extra beds" and s["reference"].startswith("HTL-") for s in stays)
+    rows = db.scalars(select(HotelReservation).where(HotelReservation.booking_id == uuid.UUID(body["booking_id"]))).all()
+    assert len(rows) == len(stays)
+    enquiry = db.get(Enquiry, uuid.UUID(body["enquiry_id"]))
+    assert "Hotels booked (mock)" in enquiry.notes
+
+
+def test_a_day_tour_books_no_hotel(api, db):
+    body = book(api, quote_s02(api, db).id).json()
+    assert body["status"] == "confirmed" and body["hotels"] == []
 
 
 def test_test_card_fails_politely_and_saves_an_enquiry(api, db):

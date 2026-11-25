@@ -16,6 +16,7 @@ import { SourceList } from "./SourceList";
 import { SpecialistNotice } from "./SpecialistNotice";
 import { TourCard } from "./TourCard";
 import { TravellerPicker } from "./TravellerPicker";
+import { TripPlan } from "./TripPlan";
 import { WelcomeBack } from "./WelcomeBack";
 
 export type Actions = {
@@ -77,6 +78,8 @@ function renderOne(c: UIComponent, actions: Actions): ReactNode {
       return <WelcomeBack {...c} />;
     case "photo_gallery":
       return <PhotoGallery {...c} />;
+    case "trip_plan":
+      return <TripPlan {...c} />;
     default:
       return null; // tour_card and itinerary_day are grouped; nothing else exists
   }
