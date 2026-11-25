@@ -47,7 +47,7 @@ export function TripPanel({ items, thinking, stage }: { items: ChatItem[]; think
   const trip = tripFrom(items);
   const empty = !trip.tour && !trip.suggestions.length && !trip.summary && !trip.gallery;
   return (
-    <aside aria-label="Your trip" className="flex max-h-[calc(100dvh-10rem)] flex-col gap-4 overflow-y-auto rounded-card border border-line p-4">
+    <aside aria-label="Your trip" className="flex max-h-[calc(100dvh-10rem)] flex-col gap-4 overflow-y-auto rounded-2xl border border-white bg-gradient-to-b from-white to-[#FAFAFA] p-4 shadow-[0_1px_0_#fff_inset,0_14px_30px_-18px_rgba(17,17,17,0.4),0_0_0_1px_rgba(17,17,17,0.05)]">
       <h2 className="text-brand-md font-semibold">Your trip</h2>
 
       {thinking && (

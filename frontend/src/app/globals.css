@@ -6,8 +6,10 @@ html {
   color-scheme: light;
 }
 
+/* A soft light-grey wash (white at the top) so embossed cards and the map watermark read. */
 body {
-  background: var(--color-surface);
+  background: radial-gradient(120% 80% at 50% 0%, var(--color-surface) 0%, #f4f5f7 55%, #eceef1 100%) fixed;
+  background-color: #f4f5f7;
   color: var(--color-ink);
   font-family: var(--font-brand);
 }

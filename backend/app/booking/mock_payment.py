@@ -75,7 +75,7 @@ def check_card(*, holder: str, brand: str, number: str, exp_month: int, exp_year
 
 class Charge(BaseModel):
     ok: bool
-    reference: str | None = None       # e.g. "mock_ch_3f9a..." when ok
+    reference: str | None = None       # e.g. "CCH-3F9A01BC" when ok
     reason: str | None = None          # "card_declined" | "provider_unavailable" | "invalid_card"
 
 
@@ -90,4 +90,4 @@ def charge(amount_usd: int, card_number: str, *, force_fail: bool | None = None)
         return Charge(ok=False, reason="provider_unavailable")
     if digits == FAIL_CARD:
         return Charge(ok=False, reason="card_declined")
-    return Charge(ok=True, reference=f"mock_ch_{secrets.token_hex(8)}")
+    return Charge(ok=True, reference=f"CCH-{secrets.token_hex(4).upper()}")

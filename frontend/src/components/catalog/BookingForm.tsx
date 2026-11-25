@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { ApiError, book, type BookingResult } from "@/lib/api";
 import { BRANDS, brandInfo, type Brand, type CardField, checkCard, digitsOf, formatExpiry, formatNumber, guessBrand, TEST_CARDS, toPayload } from "@/lib/card";
+import { brand as site } from "@/lib/brand";
 import type { ComponentOf } from "@/lib/catalog-schema";
 
 import type { Actions } from "./registry";
@@ -84,16 +85,49 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
   }
 
   if (result?.status === "confirmed") {
+    const first = name.trim().split(/\s+/)[0];
     return (
-      <Card label="Booking confirmed" accent="leaf" wide icon="check" title="Booking confirmed" subtitle="You're all set">
-        <p className="text-brand-sm leading-relaxed" role="status">{result.message}</p>
-        {(result.card || result.payment_reference) && (
-          <div className="flex flex-wrap gap-1.5">
-            {result.card && <Chip icon="card">Paid with {result.card}</Chip>}
-            {result.payment_reference && <Chip icon="tag">Ref {result.payment_reference}</Chip>}
+      <div className="flex flex-col gap-3">
+        <Card label="Booking confirmed" accent="leaf" wide icon="check" title="Booking confirmed" subtitle="You're all set">
+          <p className="text-brand-sm leading-relaxed" role="status">{result.message}</p>
+          {(result.card || result.payment_reference) && (
+            <div className="flex flex-wrap gap-1.5">
+              {result.card && <Chip icon="card">Paid with {result.card}</Chip>}
+              {result.payment_reference && <Chip icon="tag">Ref {result.payment_reference}</Chip>}
+            </div>
+          )}
+          <div className="rounded-xl bg-accent-leaf/[0.07] p-3 ring-1 ring-accent-leaf/20">
+            <p className="mb-1.5 text-brand-xs font-semibold uppercase tracking-wide text-accent-leaf">What happens next</p>
+            <ul className="flex flex-col gap-1.5 text-brand-sm">
+              <li className="flex gap-2"><Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-accent-leaf" />
+                <span>Our team has your booking and will contact you at <strong className="break-words">{email.trim()}</strong>.</span></li>
+              <li className="flex gap-2"><Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-accent-leaf" />
+                Keep your reference handy if you write to us.</li>
+              <li className="flex gap-2"><Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-accent-leaf" />
+                Questions about your trip? Just ask {site.assistantName} here.</li>
+            </ul>
           </div>
-        )}
-      </Card>
+        </Card>
+
+        {/* a thank-you from Mira, styled like her messages */}
+        <div
+          role="status"
+          className="reveal w-fit max-w-full rounded-2xl rounded-tl-sm border border-white bg-gradient-to-br from-white via-white to-[#FFF4EC] px-4 py-3 text-brand-md shadow-[0_1px_0_#fff_inset,0_-2px_0_rgba(17,17,17,0.04)_inset,0_14px_30px_-18px_rgba(17,17,17,0.45),0_2px_5px_rgba(17,17,17,0.06),0_0_0_1px_rgba(17,17,17,0.04)] sm:max-w-[85%] lg:max-w-[46rem]"
+        >
+          <p className="font-semibold">Thank you{first ? `, ${first}` : ""}!</p>
+          <p className="mt-1 text-brand-sm leading-relaxed">
+            Thank you for booking with {site.name}. We can&apos;t wait to welcome you to Sri Lanka. Have a wonderful trip!
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Pill variant="outline" disabled={actions.busy} onClick={() => actions.send("What should I pack for this trip?")}>
+              What should I pack?
+            </Pill>
+            <Pill variant="outline" disabled={actions.busy} onClick={() => actions.send("I'd like to plan another trip.")}>
+              Plan another trip
+            </Pill>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -148,13 +182,13 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
             <fieldset className="flex min-w-0 flex-col gap-3 rounded-lg border border-line/80 bg-ink/[0.02] p-2.5 sm:p-3">
               <legend className="flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
                 <Icon name="card" className="h-3.5 w-3.5" />
-                Card (demo payment)
+                Card payment
               </legend>
               <p className="flex gap-2 rounded-lg bg-accent-sun/15 px-3 py-2 text-brand-xs">
                 <Icon name="shield" className="mt-px h-3.5 w-3.5" />
-                <span>This is a <strong>mock payment</strong>: no money moves and the card is never stored. Use a test card:</span>
+                <span>Secure payment: your card details are used only for this payment and are never stored.</span>
               </p>
-              <div className="flex flex-wrap gap-1.5" aria-label="Test cards">
+              <div className="flex flex-wrap gap-1.5" aria-label="Quick fill a card">
                 {TEST_CARDS.map((t) => (
                   <button
                     key={t.number}

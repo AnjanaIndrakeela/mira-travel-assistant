@@ -333,7 +333,7 @@ def test_booking_succeeds(api, db):
     r = book(api, quote.id)
     body = r.json()
     assert r.status_code == 200 and body["status"] == "confirmed" and body["amount_charged_usd"] == 315
-    assert body["payment_reference"].startswith("mock_ch_") and "demo" in body["message"]
+    assert body["payment_reference"].startswith("CCH-") and "demo" not in body["message"].lower()
     booking = db.get(Booking, uuid.UUID(body["booking_id"]))
     assert booking.status == "confirmed"
     assert (booking.card_brand, booking.card_last4) == ("visa", "4242") and body["card"] == "Visa ending 4242"

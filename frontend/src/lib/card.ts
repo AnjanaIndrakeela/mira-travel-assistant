@@ -14,10 +14,10 @@ export const brandInfo = (b: Brand) => BRANDS.find((x) => x.id === b)!;
 
 /** Demo cards anyone can use (published test numbers; never real cards). */
 export const TEST_CARDS: { label: string; brand: Brand; number: string; cvc: string }[] = [
-  { label: "Visa, works", brand: "visa", number: "4242 4242 4242 4242", cvc: "123" },
-  { label: "Visa, declined", brand: "visa", number: "4000 0000 0000 0002", cvc: "123" },
-  { label: "Mastercard, works", brand: "mastercard", number: "5555 5555 5555 4444", cvc: "123" },
-  { label: "Amex, works", brand: "amex", number: "3782 822463 10005", cvc: "1234" },
+  { label: "Visa •••• 4242", brand: "visa", number: "4242 4242 4242 4242", cvc: "123" },
+  { label: "Visa •••• 0002", brand: "visa", number: "4000 0000 0000 0002", cvc: "123" },
+  { label: "Mastercard •••• 4444", brand: "mastercard", number: "5555 5555 5555 4444", cvc: "123" },
+  { label: "Amex •••• 0005", brand: "amex", number: "3782 822463 10005", cvc: "1234" },
 ];
 
 export const digitsOf = (s: string) => s.replace(/\D/g, "");

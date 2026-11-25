@@ -105,8 +105,7 @@ def book(req: BookingRequest, db: Session = Depends(get_db)) -> BookingOut:
     msg = (f"Your booking for the {quote.tour_name} is confirmed. We charged USD {quote.deposit_usd:,} "
            + ("(the full price)." if paid_all else
               f"as the deposit; the balance of USD {quote.balance_usd:,} is due by "
-              f"{quote.balance_due.day} {quote.balance_due:%B %Y}.")
-           + " This is a demo: no real payment was taken.")
+              f"{quote.balance_due.day} {quote.balance_due:%B %Y}."))
     return BookingOut(status="confirmed", message=msg, booking_id=booking.id,
                       payment_reference=result.reference, amount_charged_usd=quote.deposit_usd,
                       enquiry_id=enquiry.id, card=paid_with)

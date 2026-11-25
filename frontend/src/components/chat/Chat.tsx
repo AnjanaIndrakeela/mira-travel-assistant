@@ -150,7 +150,7 @@ export function Chat() {
                     key={s}
                     type="button"
                     onClick={() => ask(s)}
-                    className="min-h-11 rounded-button border border-line px-3 py-1.5 text-left text-brand-sm transition-colors hover:border-brand-orange focus-visible:outline-2 focus-visible:outline-brand-orange"
+                    className="min-h-11 rounded-button border border-white bg-gradient-to-b from-white to-[#F4F4F4] px-3.5 py-1.5 shadow-[0_1px_0_#fff_inset,0_6px_14px_-8px_rgba(17,17,17,0.35),0_0_0_1px_rgba(17,17,17,0.06)] text-left text-brand-sm transition-colors hover:border-brand-orange focus-visible:outline-2 focus-visible:outline-brand-orange"
                   >
                     {s}
                   </button>
@@ -166,7 +166,7 @@ export function Chat() {
               <button
                 type="button"
                 onClick={startFresh}
-                className="min-h-11 rounded-button border border-line px-3 py-1.5 text-brand-sm transition-colors hover:border-brand-orange focus-visible:outline-2 focus-visible:outline-brand-orange"
+                className="min-h-11 rounded-button border border-white bg-gradient-to-b from-white to-[#F4F4F4] px-3.5 py-1.5 shadow-[0_1px_0_#fff_inset,0_6px_14px_-8px_rgba(17,17,17,0.35),0_0_0_1px_rgba(17,17,17,0.06)] text-brand-sm transition-colors hover:border-brand-orange focus-visible:outline-2 focus-visible:outline-brand-orange"
               >
                 Start fresh
               </button>
@@ -198,7 +198,7 @@ export function Chat() {
         </div>
       </main>
 
-      <div className="sticky bottom-0 border-t border-line bg-surface">
+      <div className="sticky bottom-0 border-t border-line/70 bg-surface/85 shadow-[0_-10px_24px_-20px_rgba(17,17,17,0.4)] backdrop-blur-md">
         <div className="mx-auto max-w-3xl px-4 py-3 lg:max-w-6xl 2xl:max-w-7xl lg:pr-[calc(18rem+3rem)] 2xl:pr-[calc(20rem+3rem)]">
           <Composer onSend={(t) => ask(t)} disabled={thinking} />
           <p className="mt-1.5 text-center text-brand-xs text-muted">
