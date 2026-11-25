@@ -1,0 +1,613 @@
+{
+  "$defs": {
+    "BookingForm": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "description": "card = the full mock card form: holder, type, number, expiry, security code",
+          "items": {
+            "enum": [
+              "name",
+              "email",
+              "phone",
+              "card"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Fields",
+          "type": "array"
+        },
+        "quote_id": {
+          "format": "uuid",
+          "title": "Quote Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "booking_form",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "quote_id"
+      ],
+      "title": "BookingForm",
+      "type": "object"
+    },
+    "Image": {
+      "additionalProperties": false,
+      "description": "A picture from our media library. Open-licence photos carry the credit the licence asks for.",
+      "properties": {
+        "alt": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Alt",
+          "type": "string"
+        },
+        "credit": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credit"
+        },
+        "licence": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Licence"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "pattern": "^https://commons\\.wikimedia\\.org/wiki/File:[^\\s<>\\\"']+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "src": {
+          "pattern": "^/api/v1/media/[a-z0-9-]+/[a-z0-9][a-z0-9.-]*\\.(?:jpg|jpeg|png|svg|webp)$",
+          "title": "Src",
+          "type": "string"
+        }
+      },
+      "required": [
+        "src",
+        "alt"
+      ],
+      "title": "Image",
+      "type": "object"
+    },
+    "ItineraryDay": {
+      "additionalProperties": false,
+      "description": "One day of a tour's published itinerary (T07, T08, T09 have parsed days).",
+      "properties": {
+        "day": {
+          "maximum": 30,
+          "minimum": 1,
+          "title": "Day",
+          "type": "integer"
+        },
+        "description": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Image"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "meals": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Meals"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "stay": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stay"
+        },
+        "title": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "tour_id": {
+          "pattern": "^T\\d{2}$",
+          "title": "Tour Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "itinerary_day",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "tour_id",
+        "day",
+        "title",
+        "description",
+        "source"
+      ],
+      "title": "ItineraryDay",
+      "type": "object"
+    },
+    "PhotoGallery": {
+      "additionalProperties": false,
+      "description": "Pictures of the places a planned or requested trip visits (chosen by code, never the LLM).",
+      "properties": {
+        "images": {
+          "items": {
+            "$ref": "#/$defs/Image"
+          },
+          "maxItems": 6,
+          "minItems": 1,
+          "title": "Images",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "photo_gallery",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "images"
+      ],
+      "title": "PhotoGallery",
+      "type": "object"
+    },
+    "PriceBreakdown": {
+      "additionalProperties": false,
+      "description": "Quote ID only: the browser fetches the verified public quote from /quotes/{id}.",
+      "properties": {
+        "quote_id": {
+          "format": "uuid",
+          "title": "Quote Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "price_breakdown",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "quote_id"
+      ],
+      "title": "PriceBreakdown",
+      "type": "object"
+    },
+    "SourceItem": {
+      "additionalProperties": false,
+      "properties": {
+        "doc_id": {
+          "pattern": "^[A-Z]{1,3}\\d{2,3}$",
+          "title": "Doc Id",
+          "type": "string"
+        },
+        "n": {
+          "maximum": 20,
+          "minimum": 1,
+          "title": "N",
+          "type": "integer"
+        },
+        "section": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Section",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "n",
+        "doc_id",
+        "title",
+        "section"
+      ],
+      "title": "SourceItem",
+      "type": "object"
+    },
+    "SourceList": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/SourceItem"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        },
+        "type": {
+          "const": "source_list",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "items"
+      ],
+      "title": "SourceList",
+      "type": "object"
+    },
+    "SourceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "doc_id": {
+          "pattern": "^[A-Z]{1,3}\\d{2,3}$",
+          "title": "Doc Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "doc_id",
+        "title"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "SpecialistNotice": {
+      "additionalProperties": false,
+      "description": "No price or no answer: a specialist takes over. The message is code-written, never the LLM's.\ncustom_plan: offered under suggested tours, with `summary` (what the traveller asked for,\nwritten by code from the trip details) pre-filled in the enquiry form.",
+      "properties": {
+        "enquiry_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enquiry Id"
+        },
+        "message": {
+          "maxLength": 400,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "no_price",
+            "custom_request",
+            "custom_plan",
+            "unanswered_question",
+            "handoff",
+            "booking_failed"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "maxLength": 400,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary"
+        },
+        "type": {
+          "const": "specialist_notice",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "reason",
+        "message"
+      ],
+      "title": "SpecialistNotice",
+      "type": "object"
+    },
+    "TourCard": {
+      "additionalProperties": false,
+      "properties": {
+        "accent": {
+          "enum": [
+            "teal",
+            "leaf",
+            "sun",
+            "sky",
+            "coral"
+          ],
+          "title": "Accent",
+          "type": "string"
+        },
+        "bookable": {
+          "description": "Mira can price it instantly",
+          "title": "Bookable",
+          "type": "boolean"
+        },
+        "duration": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Duration",
+          "type": "string"
+        },
+        "highlights": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Highlights",
+          "type": "array"
+        },
+        "images": {
+          "items": {
+            "$ref": "#/$defs/Image"
+          },
+          "maxItems": 3,
+          "title": "Images",
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "tour_id": {
+          "pattern": "^T\\d{2}$",
+          "title": "Tour Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "tour_card",
+          "title": "Type",
+          "type": "string"
+        },
+        "why": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Why"
+        }
+      },
+      "required": [
+        "type",
+        "tour_id",
+        "title",
+        "duration",
+        "accent",
+        "bookable",
+        "source"
+      ],
+      "title": "TourCard",
+      "type": "object"
+    },
+    "TravellerPicker": {
+      "additionalProperties": false,
+      "description": "Adults +/- and child ages; the browser sends the answer as a normal message.",
+      "properties": {
+        "adults": {
+          "default": 2,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Adults",
+          "type": "integer"
+        },
+        "ask_child_ages": {
+          "default": false,
+          "description": "A child was mentioned without an age",
+          "title": "Ask Child Ages",
+          "type": "boolean"
+        },
+        "child_ages": {
+          "items": {
+            "maximum": 17,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 10,
+          "title": "Child Ages",
+          "type": "array"
+        },
+        "type": {
+          "const": "traveller_picker",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "TravellerPicker",
+      "type": "object"
+    },
+    "WelcomeBack": {
+      "additionalProperties": false,
+      "description": "R2: greeting for a returning visitor; the last quote is re-priced, shown by quote_id.",
+      "properties": {
+        "quote_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quote Id"
+        },
+        "tour_title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Tour Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "welcome_back",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "tour_title"
+      ],
+      "title": "WelcomeBack",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "booking_form": "#/$defs/BookingForm",
+      "itinerary_day": "#/$defs/ItineraryDay",
+      "photo_gallery": "#/$defs/PhotoGallery",
+      "price_breakdown": "#/$defs/PriceBreakdown",
+      "source_list": "#/$defs/SourceList",
+      "specialist_notice": "#/$defs/SpecialistNotice",
+      "tour_card": "#/$defs/TourCard",
+      "traveller_picker": "#/$defs/TravellerPicker",
+      "welcome_back": "#/$defs/WelcomeBack"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/TravellerPicker"
+    },
+    {
+      "$ref": "#/$defs/TourCard"
+    },
+    {
+      "$ref": "#/$defs/ItineraryDay"
+    },
+    {
+      "$ref": "#/$defs/PriceBreakdown"
+    },
+    {
+      "$ref": "#/$defs/BookingForm"
+    },
+    {
+      "$ref": "#/$defs/SpecialistNotice"
+    },
+    {
+      "$ref": "#/$defs/SourceList"
+    },
+    {
+      "$ref": "#/$defs/WelcomeBack"
+    },
+    {
+      "$ref": "#/$defs/PhotoGallery"
+    }
+  ]
+}

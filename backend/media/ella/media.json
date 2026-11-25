@@ -1,0 +1,42 @@
+[
+ {
+  "file": "nine-arch-bridge.svg",
+  "tag": "ella",
+  "alt": "Illustration of the Nine Arch Bridge in Ella with a blue train crossing"
+ },
+ {
+  "file": "little-adams-peak.svg",
+  "tag": "ella",
+  "alt": "Illustration of sunrise over Little Adam's Peak near Ella"
+ },
+ {
+  "file": "tea-estate.svg",
+  "tag": "ella",
+  "alt": "Illustration of a terraced tea estate on the hills around Ella"
+ },
+ {
+  "file": "ella-rock-trail.svg",
+  "tag": "ella",
+  "alt": "Illustration of the walking trail along the railway towards Ella Rock"
+ },
+ {
+  "file": "nine-arches-bridge-in-ella.jpg",
+  "tag": "ella",
+  "alt": "The Nine Arches Bridge near Ella among green hills",
+  "kind": "photo",
+  "credit": "Knthabrew",
+  "licence": "CC BY-SA 4.0",
+  "licence_url": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Nine_Arches_Bridge_in_Ella.jpg"
+ },
+ {
+  "file": "little-adams-peak-ella-sri-lanka.jpg",
+  "tag": "ella",
+  "alt": "View from Little Adam's Peak near Ella",
+  "kind": "photo",
+  "credit": "Gayan Perera",
+  "licence": "CC BY-SA 4.0",
+  "licence_url": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Little_adams_peak,_Ella_Sri_Lanka.jpg"
+ }
+]

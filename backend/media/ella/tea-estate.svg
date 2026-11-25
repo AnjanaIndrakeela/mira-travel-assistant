@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" role="img" aria-labelledby="t">
+  <title id="t">Illustration: terraced tea estate on the hills around Ella</title>
+  <rect width="640" height="400" fill="#d8ecf3"/>
+  <path d="M0 160 Q320 60 640 160 V400 H0Z" fill="#7fb77e"/>
+  <g fill="none" stroke="#4e8b52" stroke-width="10" stroke-linecap="round">
+    <path d="M20 200 Q320 120 620 200"/><path d="M20 240 Q320 160 620 240"/>
+    <path d="M20 280 Q320 200 620 280"/><path d="M20 320 Q320 240 620 320"/>
+    <path d="M20 360 Q320 280 620 360"/>
+  </g>
+  <g fill="#c0392b"><circle cx="210" cy="230" r="7"/><circle cx="420" cy="262" r="7"/></g>
+</svg>

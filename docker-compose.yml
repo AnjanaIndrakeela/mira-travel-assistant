@@ -1,0 +1,62 @@
+# The whole system: `docker compose up --build` starts the database, the backend (live reload)
+# and a production build of the frontend on http://localhost:3010.
+# For frontend development use `npm run dev` in frontend/ instead (stop this frontend first).
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: mira-db
+    environment:
+      POSTGRES_USER: mira
+      POSTGRES_PASSWORD: mira          # local development only
+      POSTGRES_DB: mira
+    ports:
+      - "5433:5432"                    # host 5433 (5432 is often taken by other projects)
+    volumes:
+      - mira-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mira -d mira"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: mira-backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://mira:mira@db:5432/mira
+      MIRA_DATASET_DIR: /data/dataset
+      MIRA_EVAL_DIR: /evaluation
+      # Ollama (LLM_PROVIDER=ollama) runs on this computer, outside Docker
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend:/app                                   # live code reload
+      - /app/.venv                                       # hide the Windows venv from the container
+      - ${MIRA_DATASET_HOST_DIR:-../ceylon-compass-dataset}:/data/dataset:ro   # read-only dataset
+      - ./evaluation:/evaluation                         # eval cases and reports
+      - ./frontend/src/lib:/frontend/src/lib             # UI catalog JSON Schema export (11.5)
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # the browser calls this, so it's the backend as the host sees it
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+    container_name: mira-frontend
+    ports:
+      - "3010:3010"                    # FRONTEND_ORIGIN on the backend must match
+    depends_on:
+      - backend
+
+volumes:
+  mira-db-data:

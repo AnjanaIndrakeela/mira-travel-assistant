@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" role="img" aria-labelledby="t">
+  <title id="t">Illustration: walking trail along the railway towards Ella Rock</title>
+  <rect width="640" height="400" fill="#e3eef0"/>
+  <path d="M0 220 L240 80 L420 200 L640 120 V400 H0Z" fill="#87a98a"/>
+  <path d="M0 400 L280 230 L360 230 L640 400Z" fill="#c9b79c"/>
+  <g stroke="#6b4f3a" stroke-width="5">
+    <path d="M300 230 L150 400"/><path d="M340 230 L490 400"/>
+  </g>
+  <g stroke="#8a6a4f" stroke-width="6">
+    <path d="M296 244 h48"/><path d="M286 266 h68"/><path d="M272 296 h96"/><path d="M252 336 h136"/><path d="M226 384 h188"/>
+  </g>
+</svg>

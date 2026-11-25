@@ -1,0 +1,42 @@
+@import "tailwindcss";
+@import "./brand.css";
+
+/* The brand is light: white surface, black text, one orange. No dark theme. */
+html {
+  color-scheme: light;
+}
+
+/* A soft light-grey wash (white at the top) so embossed cards and the map watermark read. */
+body {
+  background: radial-gradient(120% 80% at 50% 0%, var(--color-surface) 0%, #f4f5f7 55%, #eceef1 100%) fixed;
+  background-color: #f4f5f7;
+  color: var(--color-ink);
+  font-family: var(--font-brand);
+}
+
+/* Brand motion rule: transitions under 200 ms, nothing scroll-triggered. */
+* {
+  transition-duration: 150ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* New messages and cards ease in (short, per the motion rule; off with reduced motion). */
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.reveal {
+  animation: reveal 180ms ease-out both;
+}
