@@ -73,6 +73,7 @@ DECISIONS WHERE THE READ ME IS SILENT (documented, so they can be challenged)
 from app.pricing.models import PublicQuote, QuoteRequest, QuoteResult, StaffQuote
 from app.pricing.reasons import Refusal, RefusalCode
 from app.pricing.service import calculate_quote
+from app.pricing.stays import hotel_stays
 
-__all__ = ["calculate_quote", "QuoteRequest", "QuoteResult", "PublicQuote", "StaffQuote",
+__all__ = ["calculate_quote", "hotel_stays", "QuoteRequest", "QuoteResult", "PublicQuote", "StaffQuote",
            "Refusal", "RefusalCode"]

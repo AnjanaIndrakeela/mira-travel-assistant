@@ -254,11 +254,12 @@ def test_s13_planner_then_quote_then_updated_quote(base):
     assert (third["quote"]["price_usd"], third["quote"]["deposit_usd"]) == (3640, 910)
 
 
-def _draft(days, title="Ancient cities at a gentle pace", extra=""):
-    from app.graph.content_workflow import DraftDay, TourDraft
-    return TourDraft(title=title, overview="A week among the old royal cities, written from our pages." + extra,
-                     days=[DraftDay(day=i, title=f"Day {i} of the cities", description="Time at the sites.")
-                           for i in range(1, days + 1)])
+def _draft(days, title="Ancient cities at a gentle pace", extra="", stays=()):
+    from app.graph.trip_planner import PlanDay, PlanDraft
+    stays = list(stays) + [None] * days
+    return PlanDraft(title=title, overview="A week among the old royal cities, written from our pages." + extra,
+                     days=[PlanDay(day=i, title=f"Day {i} of the cities", description="Time at the sites.",
+                                   stay=stays[i - 1]) for i in range(1, days + 1)])
 
 
 def test_the_planner_agent_writes_a_plan_for_this_trip_and_the_closest_tour_is_priced(base):
@@ -269,7 +270,7 @@ def test_the_planner_agent_writes_a_plan_for_this_trip_and_the_closest_tour_is_p
         TripDetails=[T(interests=["ancient cities"], days=7),
                      T(interests=["ancient cities"], days=7, adults=2, start_date=date(2027, 5, 3)),
                      T(interests=["ancient cities"], days=7, adults=2, start_date=date(2027, 5, 3))],
-        TourDraft=[_draft(7)])
+        PlanDraft=[_draft(7)])
     g = make(base, model, retriever=FakeRetriever(Retrieved(query="", chunks=[], abstain=True)))
     turn(g, "We want to see the ancient cities, about a week.")
     out = turn(g, "2 adults, starting 3 May 2027.")
@@ -279,7 +280,7 @@ def test_the_planner_agent_writes_a_plan_for_this_trip_and_the_closest_tour_is_p
     assert out["quote"]["price_usd"] == 2125 and types[1] == "tour_card"     # the closest tour, priced
     assert "drafted a 7-day plan" in out["response"]
     again = turn(g, "Can you show me that again?")
-    assert model.count("TourDraft") == 1 and again["trip_plan"]["title"] == out["trip_plan"]["title"]
+    assert model.count("PlanDraft") == 1 and again["trip_plan"]["title"] == out["trip_plan"]["title"]
 
 
 @pytest.mark.parametrize("bad", [_draft(6), _draft(7, extra=" Only USD 500 each."),
@@ -288,11 +289,22 @@ def test_a_plan_that_fails_a_check_is_never_shown(base, bad):
     """Wrong number of days, a price, or a place none of our pages describes: the best tour instead."""
     model = FakeModel(RouterDecision=[R("discovery")],
                       TripDetails=[T(interests=["ancient cities"], days=7, adults=2, start_date=date(2027, 5, 3))],
-                      TourDraft=[bad])
+                      PlanDraft=[bad])
     out = turn(make(base, model, retriever=FakeRetriever(Retrieved(query="", chunks=[], abstain=True))),
                "A week of ancient cities, 2 adults, from 3 May 2027. What do you suggest?")
     assert not out.get("trip_plan") and "trip_plan" not in [c["type"] for c in out["ui"]]
     assert [c["type"] for c in out["ui"]].count("tour_card") == 1
+
+
+def test_the_plan_names_tonights_hotel_only_from_our_pages(base):
+    """Hotels our pages name are shown night by night; an invented one is dropped, not shown."""
+    model = FakeModel(RouterDecision=[R("discovery")],
+                      TripDetails=[T(interests=["ancient cities"], days=7, adults=2, start_date=date(2027, 5, 3))],
+                      PlanDraft=[_draft(7, stays=["Sigiriya Village or similar", "The Imaginary Palace Hotel"])])
+    out = turn(make(base, model, retriever=FakeRetriever(Retrieved(query="", chunks=[], abstain=True))),
+               "A week of ancient cities, 2 adults, from 3 May 2027. What do you suggest?")
+    days = next(c for c in out["ui"] if c["type"] == "trip_plan")["days"]
+    assert days[0]["stay"] == "Sigiriya Village or similar" and days[1]["stay"] is None
 
 
 def test_a_remembered_party_is_never_priced_unasked(base):

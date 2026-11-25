@@ -128,7 +128,14 @@ export const TripPlan = z.strictObject({
   title: text(120),
   overview: text(1200),
   days: z
-    .array(z.strictObject({ day: z.number().int().min(1).max(14), title: text(160), description: text(1200) }))
+    .array(
+      z.strictObject({
+        day: z.number().int().min(1).max(14),
+        title: text(160),
+        description: text(1200),
+        stay: text(160).nullable().default(null),
+      }),
+    )
     .min(1)
     .max(14),
   sources: z.array(sourceRef).max(8).default([]),

@@ -41,6 +41,11 @@ export function TripPlan({ title, overview, days, sources, images }: Props) {
               <div className="min-w-0 flex-1 pt-1">
                 <h4 className="text-brand-sm font-semibold leading-snug">{d.title.replace(/^Day \d+:\s*/, "")}</h4>
                 <p className="mt-1 text-brand-sm leading-relaxed"><Inline text={d.description} /></p>
+                {d.stay && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <Chip icon="bed">{d.stay}</Chip>
+                  </div>
+                )}
               </div>
             </li>
           ))}

@@ -235,6 +235,21 @@
           "title": "Description",
           "type": "string"
         },
+        "stay": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tonight's hotel, as our pages name it",
+          "title": "Stay"
+        },
         "title": {
           "maxLength": 160,
           "minLength": 1,

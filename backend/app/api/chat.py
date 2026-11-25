@@ -140,6 +140,24 @@ async def chat_stream(req: ChatRequest, db: Session = Depends(get_db),
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@router.delete("/conversations/{conversation_id}", status_code=204)
+def delete_conversation(conversation_id: uuid.UUID, visitor_id: uuid.UUID, db: Session = Depends(get_db),
+                        graph=Depends(get_chat_graph)) -> None:
+    """"New chat": the traveller's old chat is deleted (its messages and cards). Only the visitor
+    who owns it can delete it. Staff records stay: quotes, enquiries and specialist replies keep
+    their own copies and just lose the link to the chat (ON DELETE SET NULL). What R2 remembers
+    about the visitor (party, interests, last quote) is kept on the visitor, not the chat."""
+    conv = db.get(Conversation, conversation_id)
+    if conv is None or conv.visitor_id != visitor_id:
+        raise HTTPException(404, "We couldn't find that conversation.")
+    try:
+        graph.checkpointer.delete_thread(conv.thread_id)
+    except Exception as exc:  # noqa: BLE001  (the thread may already be gone after a restart)
+        logger.warning("delete_thread failed: %s", exc.__class__.__name__)
+    db.delete(conv)
+    db.commit()
+
+
 @router.get("/conversations/{conversation_id}", response_model=ConversationOut)
 def conversation(conversation_id: uuid.UUID, db: Session = Depends(get_db),
                  graph=Depends(get_chat_graph)) -> ConversationOut:

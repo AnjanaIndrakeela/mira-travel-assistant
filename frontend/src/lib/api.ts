@@ -48,15 +48,24 @@ function write(key: string, value: string | null): void {
 export const ids = {
   conversation: () => read(KEYS.conversation),
   visitor: () => read(KEYS.visitor),
-  /** Start a new conversation; the visitor ID is kept (R2: returning visitors). */
-  startOver: () => write(KEYS.conversation, null),
+  /** Start a new conversation and delete the old one on the server; the visitor ID is kept
+   * (R2: returning visitors). A failed delete never blocks the new chat. */
+  startOver: () => {
+    const conversation = read(KEYS.conversation);
+    const visitor = read(KEYS.visitor);
+    write(KEYS.conversation, null);
+    if (conversation && visitor) {
+      const q = new URLSearchParams({ visitor_id: visitor });
+      fetch(`${API_URL}/conversations/${conversation}?${q}`, { method: "DELETE" }).catch(() => {});
+    }
+  },
   /** Open a chat from the link in a specialist's email (?chat=<id>), on any device. */
   openConversation: (id: string) => {
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) write(KEYS.conversation, id);
   },
-  /** "Start fresh": forget this browser's visitor too, so nothing from last time is reused. */
+  /** "Start fresh": delete the chat and forget this browser's visitor too, so nothing from last time is reused. */
   forgetVisitor: () => {
-    write(KEYS.conversation, null);
+    ids.startOver();
     write(KEYS.visitor, null);
   },
 };
@@ -268,6 +277,17 @@ export type BookingResult = {
   field: "holder" | "brand" | "number" | "expiry" | "cvc" | null;
   /** "Visa ending 4242" on a confirmed booking. */
   card: string | null;
+  /** The hotel stays booked with the tour (none for a day tour). */
+  hotels?: HotelStay[];
+};
+
+export type HotelStay = {
+  hotel: string;
+  check_in: string;
+  check_out: string;
+  nights: number;
+  rooms: string;
+  reference: string;
 };
 
 export type CardPayload = {

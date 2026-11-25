@@ -138,7 +138,8 @@ def trip_plan(state: dict) -> dict | None:
     return {"type": "trip_plan", "title": _clip(mask_money(plan["title"], "tour"), 120),
             "overview": _clip(mask_money(plan["overview"], "tour"), 1200),
             "days": [{"day": d["day"], "title": _clip(mask_money(d["title"], "tour"), 160),
-                      "description": _clip(mask_money(d["description"], "tour"), 1200)} for d in plan["days"][:MAX_DAYS]],
+                      "description": _clip(mask_money(d["description"], "tour"), 1200),
+                      "stay": _clip(d["stay"], 160) if d.get("stay") else None} for d in plan["days"][:MAX_DAYS]],
             "sources": [{"doc_id": s["doc_id"], "title": _clip(s["title"], 120)} for s in plan.get("sources") or []][:8],
             "images": photos.for_places(plan.get("places") or [], 3)}
 

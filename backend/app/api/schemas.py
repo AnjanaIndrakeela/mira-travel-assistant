@@ -116,6 +116,16 @@ class BookingRequest(_In):
     card: Card
 
 
+class HotelStayOut(BaseModel):
+    """A hotel booked with the tour (mock): which hotel, when, and the rooms."""
+    hotel: str
+    check_in: date
+    check_out: date
+    nights: int
+    rooms: str
+    reference: str
+
+
 class BookingOut(BaseModel):
     status: Literal["confirmed", "payment_failed", "price_changed"]
     message: str
@@ -126,6 +136,7 @@ class BookingOut(BaseModel):
     enquiry_id: uuid.UUID | None = None
     field: Literal["holder", "brand", "number", "expiry", "cvc"] | None = None   # the card detail to fix
     card: str | None = None                       # "Visa ending 4242" on a confirmed booking
+    hotels: list[HotelStayOut] = []               # the hotel stays booked with the tour
 
 
 class ErrorOut(BaseModel):

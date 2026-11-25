@@ -41,7 +41,8 @@ def plan_text(plan: dict, state: dict) -> str:
     lines = [f"Draft plan written by Mira (not priced, not checked): {plan['title']}",
              f"Travellers: {who}. Start: {state.get('start_date') or 'not given'}.",
              plan["overview"], ""]
-    lines += [f"Day {d['day']}: {d['title']} - {d['description']}" for d in plan["days"]]
+    lines += [f"Day {d['day']}: {d['title']} - {d['description']}"
+              + (f" Stay: {d['stay']}." if d.get("stay") else "") for d in plan["days"]]
     lines += ["", "Sources: " + ", ".join(s["doc_id"] for s in plan.get("sources") or [])]
     return "\n".join(lines)[:4000]
 

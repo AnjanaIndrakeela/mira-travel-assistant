@@ -172,6 +172,7 @@ class PlanDay(_Component):
     day: int = Field(ge=1, le=14)
     title: T160
     description: T1200
+    stay: T160 | None = Field(default=None, description="Tonight's hotel, as our pages name it")
 
 
 class TripPlan(_Component):
