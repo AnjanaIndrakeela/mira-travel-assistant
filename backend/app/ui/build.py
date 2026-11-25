@@ -180,7 +180,8 @@ def choose_components(state: dict, *, content: Any, rates: Any) -> list[dict]:
         if action == "match_tours" and not reason:     # 12.3: offer a custom plan, never a price
             ui.append({"type": "specialist_notice", "reason": "custom_plan", "message": NOTICE["custom_plan"],
                        "enquiry_id": None, "summary": plan_summary(state)})
-    elif (action == "retrieve" and state.get("intent") == "tour_info" and not q
+    elif (action == "retrieve" and state.get("intent") == "tour_info" and not q and not reason
+          and state.get("tour_mention")                  # named in THIS message, not remembered
           and (tid := state.get("selected_tour_id"))):
         if card := tour_card(tid, content=content, rates=rates):
             ui.append(card)

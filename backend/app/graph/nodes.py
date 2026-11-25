@@ -523,9 +523,10 @@ class Nodes:
             ans = invoke_structured(GroundedAnswer, msgs, kind="strong", model=self._models("strong"),
                                     config=config)
             text, cites = ans.answer.strip(), ans.citations
+            abstained = ans.abstained and action == "retrieve"
         except Exception as exc:  # noqa: BLE001 (no key, API down, junk twice)
             logger.warning("respond fell back to code wording: %s", exc.__class__.__name__)
-            text, cites = "", []
+            text, cites, abstained = "", [], False
         if not text:
             text = self._fallback(state)
             if action == "retrieve" and state.get("retrieved"):
@@ -534,7 +535,10 @@ class Nodes:
         if q and q["price_usd"] not in amounts_in(text):
             text = replies.quote_text(q) + ("\n\n" + text if text else "")     # never lose the price
         n = len(state.get("retrieved") or [])
-        return {"response": text, "citations": sorted({c for c in cites if 1 <= c <= n})}
+        out = {"response": text, "citations": sorted({c for c in cites if 1 <= c <= n})}
+        if abstained:           # the pages found don't answer it: offer the team, as for no pages
+            out["abstain_reason"] = "not_in_sources"
+        return out
 
     # 8.11 ------------------------------------------------------------------------------
     def build_ui(self, state: MiraState) -> dict:
