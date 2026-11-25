@@ -67,6 +67,37 @@ docker compose exec backend python -m pytest
 
 This runs about 920 unit, API and database tests, including the pricing engine's tests against the workbook's sample quotes. Tests that call Gemini are marked `live` and skipped by default (`python -m pytest -m live`).
 
+## Hosting (Vercel + Render)
+
+The frontend runs on **Vercel**. The backend and its Postgres run on **Render**, from [render.yaml](render.yaml). The browser only ever talks to the Vercel site: Next forwards `/api/v1/*` to the backend ([frontend/next.config.ts](frontend/next.config.ts)). So the staff sign-in cookie is first-party and no CORS setup is needed.
+
+A copy of the dataset is in `backend/data/ceylon-compass-dataset/`, so the backend image carries it. `.gitattributes` keeps it byte-for-byte identical, and the startup integrity check still passes.
+
+**1. Backend on Render**
+
+1. Push the branch to GitHub.
+2. In Render, choose **New > Blueprint**, pick this repository, and apply `render.yaml`. This creates `mira-backend` (Docker, free plan) and `mira-db` (Postgres, free plan).
+3. When asked, fill in the values marked `sync: false`: the Gemini key and models, the price margins, the staff and approver logins, Langfuse (optional), and `FRONTEND_ORIGIN`. Use your Vercel address for `FRONTEND_ORIGIN`, or a placeholder for now and update it after step 2.
+4. Wait for the deploy, then open `https://<your-backend>.onrender.com/api/v1/health`. It should show `"database": "ok"` and `"dataset_integrity": "ok"`.
+
+**2. Frontend on Vercel**
+
+1. In Vercel, choose **Add New > Project** and import the repository. Set **Root Directory** to `frontend`; the framework is detected as Next.js.
+2. Add these environment variables (Production and Preview):
+
+   | Name | Value |
+   |---|---|
+   | `NEXT_PUBLIC_API_URL` | `/api/v1` |
+   | `BACKEND_ORIGIN` | `https://<your-backend>.onrender.com` |
+
+3. Deploy, then set `FRONTEND_ORIGIN` on Render to the Vercel address.
+
+**Things to know:**
+
+- On the free plan, the Render backend sleeps after 15 minutes without traffic. The first message after that takes about a minute while it wakes up.
+- Render's free Postgres expires 30 days after it is created.
+- The search index is rebuilt with Gemini embeddings each time the backend starts, because the free plan has no persistent disk. This takes a few seconds.
+
 ## Architecture
 
 ```mermaid

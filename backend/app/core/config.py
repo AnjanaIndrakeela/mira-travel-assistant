@@ -18,10 +18,11 @@ REPO_ROOT = BACKEND_DIR.parent  # .../Mira
 
 
 def _default_dataset_dir() -> Path:
-    """Prefer an untouched copy inside the repo; fall back to the sibling folder."""
-    in_repo = REPO_ROOT / "data" / "ceylon-compass-dataset"
-    if in_repo.is_dir():
-        return in_repo
+    """Prefer an untouched copy inside the repo (backend/data/ is what a hosted container
+    built from backend/ gets); fall back to the sibling folder."""
+    for in_repo in (BACKEND_DIR / "data" / "ceylon-compass-dataset", REPO_ROOT / "data" / "ceylon-compass-dataset"):
+        if in_repo.is_dir():
+            return in_repo
     return REPO_ROOT.parent / "ceylon-compass-dataset"
 
 
@@ -118,6 +119,21 @@ class Settings(BaseSettings):
     @classmethod
     def _empty_to_none(cls, v):
         return None if v == "" else v
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _use_psycopg(cls, v):
+        """Hosts such as Render give postgres://... or postgresql://...; SQLAlchemy needs the driver."""
+        if isinstance(v, str):
+            for prefix in ("postgres://", "postgresql://"):
+                if v.startswith(prefix):
+                    return "postgresql+psycopg://" + v[len(prefix):]
+        return v
+
+    @field_validator("frontend_origin", mode="before")
+    @classmethod
+    def _no_trailing_slash(cls, v):
+        return v.rstrip("/") if isinstance(v, str) else v
 
     @field_validator("mira_dataset_dir", mode="before")
     @classmethod
