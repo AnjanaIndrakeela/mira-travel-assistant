@@ -161,10 +161,11 @@ class PhotoGallery(_Component):
 
 
 class WelcomeBack(_Component):
-    """R2: greeting for a returning visitor; the last quote is re-priced, shown by quote_id."""
+    """R2: greeting for a returning visitor; the last quote is re-priced, shown by quote_id.
+    No tour_title: they chatted before but never got a price."""
 
     type: Literal["welcome_back"]
-    tour_title: T120
+    tour_title: T120 | None = None
     quote_id: uuid.UUID | None = None
 
 

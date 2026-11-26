@@ -26,7 +26,8 @@ router = APIRouter(tags=["visitors"])
 class WelcomeOut(BaseModel):
     message: str
     ui: list[dict[str, Any]]
-    a2ui: list[dict[str, Any]] = []      # the same card as A2UI v1.0 messages
+    a2ui: list[dict[str, Any]] = []      # the same cards as A2UI v1.0 messages: the welcome_back
+                                         # surface first (shown above the message), then the price
     quote_id: uuid.UUID | None = None
     status: str
 
@@ -39,5 +40,10 @@ def visitor_welcome(visitor_id: uuid.UUID, db: Session = Depends(get_db)):
         return Response(status_code=204)
     db.commit()
     ui, _ = validate_ui(out["ui"], quote_id=out["quote_id"])
-    return WelcomeOut(message=out["message"], ui=ui, a2ui=to_a2ui(ui, f"welcome-{uuid.uuid4().hex[:8]}"),
+    # two surfaces: the welcome_back card (shown above the message), then the price (below it)
+    tag = uuid.uuid4().hex[:8]
+    card = [c for c in ui if c["type"] == "welcome_back"]
+    rest = [c for c in ui if c["type"] != "welcome_back"]
+    return WelcomeOut(message=out["message"], ui=ui,
+                      a2ui=to_a2ui(card, f"welcome-{tag}") + to_a2ui(rest, f"welcome-{tag}-price"),
                       quote_id=out["quote_id"], status=out["status"])

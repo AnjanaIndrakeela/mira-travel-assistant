@@ -644,7 +644,7 @@
     },
     "WelcomeBack": {
       "additionalProperties": false,
-      "description": "R2: greeting for a returning visitor; the last quote is re-priced, shown by quote_id.",
+      "description": "R2: greeting for a returning visitor; the last quote is re-priced, shown by quote_id.\nNo tour_title: they chatted before but never got a price.",
       "properties": {
         "quote_id": {
           "anyOf": [
@@ -660,10 +660,18 @@
           "title": "Quote Id"
         },
         "tour_title": {
-          "maxLength": 120,
-          "minLength": 1,
-          "title": "Tour Title",
-          "type": "string"
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tour Title"
         },
         "type": {
           "const": "welcome_back",
@@ -672,8 +680,7 @@
         }
       },
       "required": [
-        "type",
-        "tour_title"
+        "type"
       ],
       "title": "WelcomeBack",
       "type": "object"

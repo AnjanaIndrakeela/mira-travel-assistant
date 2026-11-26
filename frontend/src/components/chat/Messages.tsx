@@ -14,9 +14,12 @@ const A2uiReply = dynamic(() => import("./A2uiReply"), { ssr: false });
 /** Shared bubble shape for every message. */
 const BUBBLE = "rounded-2xl";
 
+/** Cards shown ABOVE Mira's text (the welcome-back card), as a plain list and as A2UI. */
+export type Cards = { ui: unknown[]; a2ui?: unknown[] };
+
 export type ChatItem =
   | { id: string; role: "traveller"; text: string }
-  | { id: string; role: "mira"; text: string; ui?: unknown[]; a2ui?: unknown[] }
+  | { id: string; role: "mira"; text: string; ui?: unknown[]; a2ui?: unknown[]; lead?: Cards }
   | { id: string; role: "specialist"; text: string };
 
 /** A reply from a person on the team: shown exactly as written, and clearly not from Mira. */
@@ -69,10 +72,17 @@ function Avatar() {
 /** Mira's text, then the catalog components code chose for this turn (validated again here):
  * rendered from the reply's A2UI messages (live and saved replies both carry them), else the
  * plain list (if the server sent no A2UI). */
-export function AssistantMessage({ text, ui = [], a2ui, actions }: {
+function Components({ ui, a2ui, actions }: { ui: unknown[]; a2ui?: unknown[]; actions?: Actions }) {
+  if (!actions) return null;
+  if (a2ui && a2ui.length > 0) return <A2uiReply messages={a2ui} ui={ui} actions={actions} />;
+  return ui.length > 0 ? <UIBlocks components={ui} actions={actions} /> : null;
+}
+
+export function AssistantMessage({ text, ui = [], a2ui, lead, actions }: {
   text: string;
   ui?: unknown[];
   a2ui?: unknown[];
+  lead?: Cards;
   actions?: Actions;
 }) {
   return (
@@ -80,14 +90,15 @@ export function AssistantMessage({ text, ui = [], a2ui, actions }: {
       <Avatar />
       <div className="min-w-0 flex-1">
         <p className="sr-only">{brand.assistantName} says:</p>
+        {lead && (
+          <div className="-mt-3 mb-3">
+            <Components ui={lead.ui} a2ui={lead.a2ui} actions={actions} />
+          </div>
+        )}
         <div className={`w-fit max-w-full break-words ${BUBBLE} rounded-tl-sm border border-white bg-gradient-to-br from-white via-white to-[#FFF4EC] px-4 py-3 shadow-[0_1px_0_#fff_inset,0_-2px_0_rgba(17,17,17,0.04)_inset,0_14px_30px_-18px_rgba(17,17,17,0.45),0_2px_5px_rgba(17,17,17,0.06),0_0_0_1px_rgba(17,17,17,0.04)] text-brand-md sm:max-w-[85%] lg:max-w-[46rem]`}>
           <Markdown text={text} />
         </div>
-        {actions && a2ui && a2ui.length > 0 ? (
-          <A2uiReply messages={a2ui} ui={ui} actions={actions} />
-        ) : (
-          actions && ui.length > 0 && <UIBlocks components={ui} actions={actions} />
-        )}
+        <Components ui={ui} a2ui={a2ui} actions={actions} />
       </div>
     </div>
   );
@@ -140,7 +151,7 @@ export function MessageList({ items, thinking, step, stage, send, sendAction }: 
           ) : m.role === "specialist" ? (
             <SpecialistMessage text={m.text} />
           ) : (
-            <AssistantMessage text={m.text} ui={m.ui} a2ui={m.a2ui} actions={{ send, act, sendAction, busy: thinking, latest: m.id === lastMira }} />
+            <AssistantMessage text={m.text} ui={m.ui} a2ui={m.a2ui} lead={m.lead} actions={{ send, act, sendAction, busy: thinking, latest: m.id === lastMira }} />
           )}
         </li>
       ))}

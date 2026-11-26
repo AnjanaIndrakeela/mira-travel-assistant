@@ -45,18 +45,36 @@ export function Chat() {
   const welcomeBack = useCallback(async (isAlive: () => boolean = () => true) => {
     const w = await loadWelcome();
     if (!w || !isAlive()) return;
-    setItems([{ id: nextId(), role: "mira", text: w.message, ui: w.ui, a2ui: w.a2ui }]);
+    // the welcome_back card goes above the message, the price (if any) under it
+    type Msg = { createSurface?: { surfaceId: string }; updateComponents?: { surfaceId: string } };
+    const isCard = (c: { type?: unknown }) => c.type === "welcome_back";
+    const messages = (w.a2ui ?? []) as Msg[];
+    const first = messages.find((m) => m.createSurface)?.createSurface?.surfaceId;
+    const inFirst = (m: Msg) => (m.createSurface ?? m.updateComponents)?.surfaceId === first;
+    setItems([
+      {
+        id: nextId(),
+        role: "mira",
+        text: w.message,
+        lead: { ui: w.ui.filter(isCard), a2ui: messages.filter(inFirst) },
+        ui: w.ui.filter((c) => !isCard(c)),
+        a2ui: messages.filter((m) => !inFirst(m)),
+      },
+    ]);
     setReturning(true);
   }, []);
 
-  // Restore the current conversation after a reload (the server keeps it per conversation ID).
-  // A link from a specialist's email (?chat=<id>) opens that chat, then the address is tidied.
+  // Opening the site starts a new chat, with the welcome-back card for someone who chatted
+  // before. A link from a specialist's email (?chat=<id>) opens that chat instead, then the
+  // address is tidied.
   useEffect(() => {
     let alive = true;
     const linked = new URLSearchParams(window.location.search).get("chat");
     if (linked) {
       ids.openConversation(linked);
       window.history.replaceState(null, "", window.location.pathname);
+    } else {
+      ids.newChat();
     }
     loadHistory().then(async (history) => {
       if (!alive) return;

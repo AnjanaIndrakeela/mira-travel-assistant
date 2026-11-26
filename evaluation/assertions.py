@@ -308,7 +308,7 @@ def welcome_back(run: CaseRun, spec: dict | None) -> Check | None:
             problems.append("an expired quote was shown with a price")
         if w.get("old_price_usd") in amounts(w.get("message") or ""):
             problems.append("the old price was repeated")
-    if any(c.get("type") != "welcome_back" for c in w.get("ui") or []) or not w.get("ui"):
+    if not any(c.get("type") == "welcome_back" for c in w.get("ui") or []):
         problems.append("no welcome_back component")
     return Check("welcome_back", not problems, "; ".join(problems) or f"{w.get('status')}: {w.get('message', '')[:80]}")
 

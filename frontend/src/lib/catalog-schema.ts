@@ -113,7 +113,7 @@ export const SourceList = z.strictObject({
 
 export const WelcomeBack = z.strictObject({
   type: z.literal("welcome_back"),
-  tour_title: text(120),
+  tour_title: text(120).nullable().default(null),
   quote_id: z.uuid().nullable().default(null),
 });
 

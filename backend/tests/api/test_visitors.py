@@ -55,9 +55,13 @@ def test_welcome_re_prices_a_valid_last_quote(api, db):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok" and body["quote_id"] and body["quote_id"] != str(quote.id)   # a new row
-    assert body["ui"] == [{"type": "welcome_back", "tour_title": quote.tour_name, "quote_id": body["quote_id"]}]
-    comps = body["a2ui"][1]["updateComponents"]["components"]                 # the same card, as A2UI
-    assert [c["component"] for c in comps] == ["MiraReply", "WelcomeBack"] and comps[1]["quote_id"] == body["quote_id"]
+    assert body["ui"] == [{"type": "welcome_back", "tour_title": quote.tour_name, "quote_id": body["quote_id"]},
+                          {"type": "price_breakdown", "quote_id": body["quote_id"]}]
+    assert "Welcome back" not in body["message"]                    # the card says it, not the text
+    # as A2UI: the welcome card's surface first (above the message), the price's after it
+    surfaces = [m["updateComponents"]["components"] for m in body["a2ui"] if "updateComponents" in m]
+    assert [[c["component"] for c in s] for s in surfaces] == [["MiraReply", "WelcomeBack"],
+                                                               ["MiraReply", "PriceBreakdown"]]
     fresh = api.client.get(f"/api/v1/quotes/{body['quote_id']}").json()
     assert fresh["price_usd"] == 315 and "cost" not in str(body).lower()
     assert db.get(Visitor, visitor.id).last_quote_id == uuid.UUID(body["quote_id"])
@@ -91,3 +95,21 @@ def test_welcome_for_unknown_or_new_visitor_is_204(api, db):
     db.flush()
     assert api.client.get(f"/api/v1/visitors/{fresh.id}/welcome").status_code == 204
     assert api.client.get("/api/v1/visitors/not-a-uuid/welcome").status_code == 422
+
+
+def test_a_visitor_who_chatted_without_a_price_is_welcomed_back(api, db):
+    """Opening the site again starts a new chat with a welcome_back card, even with no last trip."""
+    from app.db.models import Conversation
+    visitor = Visitor(id=uuid.uuid4())
+    db.add(visitor)
+    db.flush()
+    conv_id = uuid.uuid4()
+    db.add(Conversation(id=conv_id, visitor=visitor, thread_id=str(conv_id)))
+    db.flush()
+    r = api.client.get(f"/api/v1/visitors/{visitor.id}/welcome")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "again" and body["quote_id"] is None and "Welcome back" not in body["message"]
+    assert body["ui"] == [{"type": "welcome_back", "tour_title": None, "quote_id": None}]
+    comps = body["a2ui"][1]["updateComponents"]["components"]
+    assert [c["component"] for c in comps] == ["MiraReply", "WelcomeBack"]

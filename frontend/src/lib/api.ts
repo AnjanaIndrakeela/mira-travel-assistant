@@ -76,6 +76,9 @@ export const ids = {
       fetch(`${API_URL}/conversations/${conversation}?${q}`, { method: "DELETE" }).catch(() => {});
     }
   },
+  /** Opening the site: a new chat. The last one is only forgotten here, not deleted, so the
+   * link in a specialist's email still opens it. */
+  newChat: () => write(KEYS.conversation, null),
   /** Open a chat from the link in a specialist's email (?chat=<id>), on any device. */
   openConversation: (id: string) => {
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) write(KEYS.conversation, id);
