@@ -55,6 +55,8 @@ class MiraState(TypedDict, total=False):
     trip_type: TripType | None
     traveller_type: TravellerType | None
     party: Party | None
+    remembered_interests: list[str]   # from a last visit: used only when this chat names none
+    remembered_party: Party | None   # who travelled last visit: presets the picker, never priced unasked
     start_date: str | None            # ISO date; strings keep the checkpoint JSON-friendly
     travel_month: int | None
     selected_tour_id: str | None
@@ -63,6 +65,9 @@ class MiraState(TypedDict, total=False):
     interests: list[str]
     duration_days: int | None
     suggested_tour_ids: list[str]     # tour cards shown earlier, for "yes, that one"
+    trip_plan: dict[str, Any] | None  # the planner agent's draft plan for this trip (no price)
+    trip_plan_key: str | None         # what that plan was written for (a change -> a new plan)
+    saved_plan_key: str | None        # the plan already saved on an enquiry for staff
     children_without_age: bool        # a child was mentioned but not their age
     questions_asked: int              # toward the limit of 3 (R1)
 
@@ -73,6 +78,7 @@ class MiraState(TypedDict, total=False):
     trip: dict[str, Any] | None       # TripDetails the guard's Gemini call extracted this turn
     slots_changed: bool               # this message added or changed tour/date/party
     assumed_tour: bool                # priced the top suggestion because no tour was named
+    plan_shown: bool                  # this turn shows the trip plan (written now or kept)
     question: str | None              # the one question code decided to ask, if any
     action: Action
     missing: list[Slot]
@@ -84,6 +90,7 @@ class MiraState(TypedDict, total=False):
     refusals: list[dict[str, str]]    # {code, message} - traveller-safe messages only
     quote_id: str | None
     enquiry_id: str | None
+    plan_enquiry_id: str | None       # the enquiry the trip plan was saved on (this turn)
     flags: list[str]                  # staff flags for this turn (no_price, custom_request, injection...)
     response: str
     ui: list[dict[str, Any]]          # catalog components, validated (app.ui.catalog)
@@ -98,10 +105,10 @@ class MiraState(TypedDict, total=False):
 # Keys cleared at the start of every turn (the guard returns these defaults).
 PER_TURN_DEFAULTS: dict[str, Any] = {
     "intent": "", "needs_retrieval": False, "input_flags": [], "tour_mention": None, "trip": None,
-    "unmatched_tour": None, "unpriced_service": None, "slots_changed": False, "assumed_tour": False, "question": None,
+    "unmatched_tour": None, "unpriced_service": None, "slots_changed": False, "assumed_tour": False, "plan_shown": False, "question": None,
     "action": "handoff", "missing": [],
     "retrieved": [], "abstain_reason": None, "tour_cards": [], "quote": None, "quote_request": None,
-    "refusals": [], "quote_id": None, "enquiry_id": None, "flags": [], "response": "", "ui": [],
+    "refusals": [], "quote_id": None, "enquiry_id": None, "plan_enquiry_id": None, "flags": [], "response": "", "ui": [],
     "ui_rejected": [],
     "citations": [],
 }   # trace_id is not reset: the caller sets it in each turn's input (None without tracing)

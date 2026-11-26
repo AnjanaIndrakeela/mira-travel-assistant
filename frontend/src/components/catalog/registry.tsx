@@ -6,6 +6,7 @@
 
 import { Component, type ReactNode } from "react";
 
+import type { ActionMessage } from "@/lib/api";
 import { type ComponentOf, parseComponent, type UIComponent } from "@/lib/catalog-schema";
 
 import { BookingForm } from "./BookingForm";
@@ -16,11 +17,24 @@ import { SourceList } from "./SourceList";
 import { SpecialistNotice } from "./SpecialistNotice";
 import { TourCard } from "./TourCard";
 import { TravellerPicker } from "./TravellerPicker";
+import { TripPlan } from "./TripPlan";
 import { WelcomeBack } from "./WelcomeBack";
+
+/** A click on a card: an A2UI action name and its typed context (see backend app/ui/actions.py). */
+export type CardAction = {
+  name: "get_price" | "ask_team" | "set_travellers" | "new_quote" | "packing_tips" | "plan_another";
+  context: Record<string, unknown>;
+  /** The catalog component the click came from (TourCard...), for the action's sourceComponentId. */
+  component: string;
+};
 
 export type Actions = {
   /** Send a message to Mira as the traveller. */
   send: (text: string) => void;
+  /** Send a click as an A2UI action; `label` is what the traveller's bubble shows. */
+  act: (action: CardAction, label: string) => void;
+  /** Send a full A2UI action message (A2uiReply uses it to name the surface and component). */
+  sendAction: (action: ActionMessage, label: string) => void;
   /** True while Mira is replying (buttons that send are disabled). */
   busy: boolean;
   /** Only the newest reply's pickers and buttons are live. */
@@ -77,6 +91,8 @@ function renderOne(c: UIComponent, actions: Actions): ReactNode {
       return <WelcomeBack {...c} />;
     case "photo_gallery":
       return <PhotoGallery {...c} />;
+    case "trip_plan":
+      return <TripPlan {...c} />;
     default:
       return null; // tour_card and itinerary_day are grouped; nothing else exists
   }

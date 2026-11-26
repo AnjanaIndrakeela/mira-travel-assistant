@@ -3,7 +3,8 @@
 - remember(): after a turn, keep what is safe to reuse on the `visitors` row: the party
   (adults + child ages), the traveller type code derived from it, interests, and the last quote.
   No names, emails or phone numbers are stored here (the guard masks them anyway).
-- known_slots(): what a new conversation can start with, so Mira doesn't ask again.
+- known_slots(): what a new conversation can start with: interests, and last time's party as
+  the traveller picker's starting point (Mira still asks who is travelling this time).
 - welcome(): the last quote RE-RUN through the pricing engine with today's rates. A still-valid
   price is saved as a new quote row and shown by quote_id; a quote that no longer prices (date
   passed, rate expired) is never shown with its old price: specialist wording instead.
@@ -58,11 +59,14 @@ def known_slots(session: Session, visitor_id: Any) -> dict:
         return {"is_returning": False}
     out: dict = {"is_returning": True}
     if visitor.party and visitor.party.get("adults"):
-        out["party"] = {"adults": int(visitor.party["adults"]),
-                        "child_ages": [int(a) for a in visitor.party.get("child_ages", [])]}
-        out["traveller_type"] = visitor.traveller_type
+        # not the party itself: Mira still asks who is travelling this time, and the
+        # traveller picker starts from last time's answer
+        out["remembered_party"] = {"adults": int(visitor.party["adults"]),
+                                   "child_ages": [int(a) for a in visitor.party.get("child_ages", [])]}
     if visitor.interests:
-        out["interests"] = list(visitor.interests)
+        # a fallback only: a new request ("a trip to Galle") is matched on what it says, not on
+        # interests from earlier trips
+        out["remembered_interests"] = list(visitor.interests)
     return out
 
 

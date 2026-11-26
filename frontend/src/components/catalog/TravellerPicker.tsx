@@ -56,7 +56,10 @@ export function TravellerPicker({ adults: startAdults, child_ages, ask_child_age
       ? ` and ${known.length} child${known.length === 1 ? "" : "ren"} aged ${known.join(", ")}`
       : " and no children";
     setSent(true);
-    actions.send(`We are ${people}${kids}.`);
+    actions.act(
+      { name: "set_travellers", context: { adults, child_ages: known }, component: "TravellerPicker" },
+      `We are ${people}${kids}.`,
+    );
   }
 
   const locked = sent || !actions.latest;

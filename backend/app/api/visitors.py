@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.guards.ui_validator import validate_ui
+from app.ui.a2ui import to_a2ui
 from app.visitors import welcome
 
 router = APIRouter(tags=["visitors"])
@@ -25,6 +26,7 @@ router = APIRouter(tags=["visitors"])
 class WelcomeOut(BaseModel):
     message: str
     ui: list[dict[str, Any]]
+    a2ui: list[dict[str, Any]] = []      # the same card as A2UI v1.0 messages
     quote_id: uuid.UUID | None = None
     status: str
 
@@ -37,4 +39,5 @@ def visitor_welcome(visitor_id: uuid.UUID, db: Session = Depends(get_db)):
         return Response(status_code=204)
     db.commit()
     ui, _ = validate_ui(out["ui"], quote_id=out["quote_id"])
-    return WelcomeOut(message=out["message"], ui=ui, quote_id=out["quote_id"], status=out["status"])
+    return WelcomeOut(message=out["message"], ui=ui, a2ui=to_a2ui(ui, f"welcome-{uuid.uuid4().hex[:8]}"),
+                      quote_id=out["quote_id"], status=out["status"])

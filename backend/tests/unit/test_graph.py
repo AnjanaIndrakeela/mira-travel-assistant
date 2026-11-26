@@ -137,6 +137,21 @@ def test_planner_gets_three_real_tours_without_prices(base):
     assert suggest_tours(base.tours, interests=["ancient cities"], destinations=[], days=7)[0]["tour_id"] == "T09"
 
 
+@pytest.mark.parametrize("interests, days, best", [
+    (["beaches", "wildlife"], 10, "T08"),     # covers both kinds, not two wildlife parks only (T13)
+    (["culture", "beaches"], 7, "T08"),       # both kinds, not culture only (T09)
+    (["tea", "hiking"], 5, "T08"),            # a week, not the 14-day grand tour (T12)
+    (["ancient cities"], 7, "T09"),
+    (["wildlife"], None, "T13"),
+])
+def test_best_tour_covers_every_interest_and_fits_the_length(base, interests, days, best):
+    """Only the best match is shown, so it must cover each kind of trip asked for and be near
+    the length they want."""
+    top = suggest_tours(base.tours, interests=interests, destinations=[], days=days,
+                        trip_type="multi_day" if days else None)[0]
+    assert top["tour_id"] == best
+
+
 # ---- 8.5 / 8.6: route branches ---------------------------------------------------------
 
 def S(**kw):
@@ -234,9 +249,105 @@ def test_s13_planner_then_quote_then_updated_quote(base):
     second = turn(g, "2 adults, starting 3 May 2027.")
     assert second["assumed_tour"] and second["quote"]["price_usd"] == 2125
     types = [c["type"] for c in second["ui"]]
-    assert types[0] == "tour_card" and types.count("tour_card") >= 2        # priced match first, then the others
+    assert types[0] == "tour_card" and types.count("tour_card") == 1        # the priced best match only
     third = turn(g, "Actually there will be 4 adults, can you update the price?")
     assert (third["quote"]["price_usd"], third["quote"]["deposit_usd"]) == (3640, 910)
+
+
+def _draft(days, title="Ancient cities at a gentle pace", extra="", stays=()):
+    from app.graph.trip_planner import PlanDay, PlanDraft
+    stays = list(stays) + [None] * days
+    return PlanDraft(title=title, overview="A week among the old royal cities, written from our pages." + extra,
+                     days=[PlanDay(day=i, title=f"Day {i} of the cities", description="Time at the sites.",
+                                   stay=stays[i - 1]) for i in range(1, days + 1)])
+
+
+def test_the_planner_agent_writes_a_plan_for_this_trip_and_the_closest_tour_is_priced(base):
+    """A custom day-by-day plan from the traveller's details and our pages (RAG). No price on the
+    plan: the team confirms it. The closest published tour is still priced to book now."""
+    model = FakeModel(
+        RouterDecision=[R("discovery"), R("quote"), R("quote")],
+        TripDetails=[T(interests=["ancient cities"], days=7),
+                     T(interests=["ancient cities"], days=7, adults=2, start_date=date(2027, 5, 3)),
+                     T(interests=["ancient cities"], days=7, adults=2, start_date=date(2027, 5, 3))],
+        PlanDraft=[_draft(7)])
+    g = make(base, model, retriever=FakeRetriever(Retrieved(query="", chunks=[], abstain=True)))
+    turn(g, "We want to see the ancient cities, about a week.")
+    out = turn(g, "2 adults, starting 3 May 2027.")
+    types = [c["type"] for c in out["ui"]]
+    assert types[0] == "trip_plan" and len(out["ui"][0]["days"]) == 7
+    assert out["ui"][0]["sources"] and "price" not in out["ui"][0]
+    assert out["quote"]["price_usd"] == 2125 and types[1] == "tour_card"     # the closest tour, priced
+    assert "drafted a 7-day plan" in out["response"]
+    again = turn(g, "Can you show me that again?")
+    assert model.count("PlanDraft") == 1 and again["trip_plan"]["title"] == out["trip_plan"]["title"]
+
+
+@pytest.mark.parametrize("bad", [_draft(6), _draft(7, extra=" Only USD 500 each."),
+                                 _draft(7, extra=" Ends with a trip to Jaffna.")])
+def test_a_plan_that_fails_a_check_is_never_shown(base, bad):
+    """Wrong number of days, a price, or a place none of our pages describes: the best tour instead."""
+    model = FakeModel(RouterDecision=[R("discovery")],
+                      TripDetails=[T(interests=["ancient cities"], days=7, adults=2, start_date=date(2027, 5, 3))],
+                      PlanDraft=[bad])
+    out = turn(make(base, model, retriever=FakeRetriever(Retrieved(query="", chunks=[], abstain=True))),
+               "A week of ancient cities, 2 adults, from 3 May 2027. What do you suggest?")
+    assert not out.get("trip_plan") and "trip_plan" not in [c["type"] for c in out["ui"]]
+    assert [c["type"] for c in out["ui"]].count("tour_card") == 1
+
+
+def test_the_plan_names_tonights_hotel_only_from_our_pages(base):
+    """Hotels our pages name are shown night by night; an invented one is dropped, not shown."""
+    model = FakeModel(RouterDecision=[R("discovery")],
+                      TripDetails=[T(interests=["ancient cities"], days=7, adults=2, start_date=date(2027, 5, 3))],
+                      PlanDraft=[_draft(7, stays=["Sigiriya Village or similar", "The Imaginary Palace Hotel"])])
+    out = turn(make(base, model, retriever=FakeRetriever(Retrieved(query="", chunks=[], abstain=True))),
+               "A week of ancient cities, 2 adults, from 3 May 2027. What do you suggest?")
+    days = next(c for c in out["ui"] if c["type"] == "trip_plan")["days"]
+    assert days[0]["stay"] == "Sigiriya Village or similar" and days[1]["stay"] is None
+
+
+def test_a_remembered_party_is_never_priced_unasked(base):
+    """R2: last visit's party presets the picker, but Mira asks who is travelling first."""
+    model = FakeModel(RouterDecision=[R("quote", "Sigiriya and Minneriya day tour from Kandy"), R("quote")],
+                      TripDetails=[T(tour_mention="Sigiriya and Minneriya day tour from Kandy",
+                                     start_date=date(2027, 1, 10)), T(adults=3)])
+    g = make(base, model)
+    known = {"is_returning": True, "remembered_party": {"adults": 2, "child_ages": []}}
+    first = g.invoke({"messages": [HumanMessage(content="The Sigiriya and Minneriya day tour on 10 January 2027.")],
+                      "thread_id": "r2", "trace_id": None, **known}, {"configurable": {"thread_id": "r2"}})
+    assert first["action"] == "ask" and first["quote"] is None and "adults" in first["missing"]
+    assert "Last time it was 2 adults" in first["question"]            # one tap to confirm (R2)
+    picker = next(c for c in first["ui"] if c["type"] == "traveller_picker")
+    assert picker["adults"] == 2
+    second = turn(g, "3 adults.", thread="r2")
+    assert second["quote"]["adults"] == 3
+
+
+def test_asking_for_suggestions_after_a_quote_does_not_reprice_the_old_tour(base):
+    model = FakeModel(
+        RouterDecision=[R("quote", "Sigiriya and Minneriya day tour from Kandy"), R("discovery")],
+        TripDetails=[T(tour_mention="Sigiriya and Minneriya day tour from Kandy",
+                       start_date=date(2027, 1, 10), adults=2),
+                     T(interests=["beaches", "wildlife"], days=10, adults=2, start_date=date(2027, 3, 5))])
+    g = make(base, model)
+    first = turn(g, "How much is the Sigiriya and Minneriya day tour from Kandy for 2 adults on 10 January 2027?")
+    assert first["quote"]["tour_id"] == "T01"
+    second = turn(g, "We'd like about 10 days of beaches and wildlife, 2 adults, from 5 March 2027. "
+                     "What do you suggest?")
+    assert second["action"] == "match_tours" and second["quote"] is None
+    cards = [c["tour_id"] for c in second["ui"] if c["type"] == "tour_card"]
+    assert cards == ["T08"]                                  # the best match, not the old tour
+
+
+def test_remembered_interests_never_override_a_new_request(base):
+    """Last visit's interests (culture, wildlife...) must not turn "2 days in Galle" into a grand tour."""
+    model = FakeModel(RouterDecision=[R("discovery")], TripDetails=[T(destinations=["Galle"], days=2, adults=2)])
+    g = make(base, model)
+    known = {"is_returning": True, "remembered_interests": ["culture", "wildlife", "beaches", "ancient cities"]}
+    out = g.invoke({"messages": [HumanMessage(content="I want to go on a 2 day trip to Galle, 2 adults.")],
+                    "thread_id": "galle", "trace_id": None, **known}, {"configurable": {"thread_id": "galle"}})
+    assert out["suggested_tour_ids"][0] == "T04"                 # Galle Fort Walking Tour
 
 
 def test_s12_injection_declines_without_router_or_quote(base):
@@ -373,7 +484,7 @@ def test_unknown_tour_suggests_by_its_own_words(base):
     model = FakeModel(RouterDecision=[R("quote", "Adam's Peak sunrise climb")],
                       TripDetails=[T(tour_mention="Adam's Peak sunrise climb")])
     out = turn(make(base, model), "Do you do an Adam's Peak sunrise climb? How much is it?")
-    assert len(out["tour_cards"]) == 3
+    assert len(out["tour_cards"]) == 1 and len(out["suggested_tour_ids"]) == 3      # best one shown
     assert all({"nuwara-eliya", "ella", "kandy"} & set(c["destinations"]) for c in out["tour_cards"])
 
 

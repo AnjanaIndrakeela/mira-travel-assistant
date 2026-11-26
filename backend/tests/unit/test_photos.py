@@ -42,6 +42,21 @@ def test_tour_cards_show_their_places(deps):
         assert tour_card(tid, content=deps.content, rates=deps.rates)["images"]
 
 
+def test_suggestion_card_photos_match_the_places_it_names(deps):
+    """A card saying "Visits Galle, Yala" shows Galle and Yala first, not the start of the route."""
+    def folders(card):
+        return [i["src"].split("/")[4] for i in card["images"]]
+
+    card = tour_card("T12", content=deps.content, rates=deps.rates, why="13 nights / 14 days, visits Galle, Yala")
+    assert card["why"] == "Visits Galle, Yala"
+    assert folders(card)[:2] == ["galle", "yala"]
+    card = tour_card("T08", content=deps.content, rates=deps.rates, why="7 nights / 8 days, visits Galle, Minneriya")
+    assert folders(card)[:2] == ["galle", "minneriya"]
+    # a named place the tour doesn't visit is never pictured
+    card = tour_card("T08", content=deps.content, rates=deps.rates, why="visits Yala")
+    assert "yala" not in folders(card)
+
+
 def test_itinerary_day_pictures_follow_the_day_and_never_repeat(deps):
     days = itinerary_days("T08", content=deps.content)
     srcs = [d["image"]["src"] for d in days if d["image"]]

@@ -1,17 +1,22 @@
+import dynamic from "next/dynamic";
 import Image from "next/image";
 
-import { type Actions, UIBlocks } from "@/components/catalog/registry";
+import { type Actions, type CardAction, UIBlocks } from "@/components/catalog/registry";
+import type { ActionMessage } from "@/lib/api";
 import { brand } from "@/lib/brand";
 
 import { Markdown } from "./Markdown";
 import { ReplySkeleton, Stages } from "./Progress";
+
+// The A2UI renderer runs in the browser only (it is client state, never server-rendered)
+const A2uiReply = dynamic(() => import("./A2uiReply"), { ssr: false });
 
 /** Shared bubble shape for every message. */
 const BUBBLE = "rounded-2xl";
 
 export type ChatItem =
   | { id: string; role: "traveller"; text: string }
-  | { id: string; role: "mira"; text: string; ui?: unknown[] }
+  | { id: string; role: "mira"; text: string; ui?: unknown[]; a2ui?: unknown[] }
   | { id: string; role: "specialist"; text: string };
 
 /** A reply from a person on the team: shown exactly as written, and clearly not from Mira. */
@@ -61,8 +66,15 @@ function Avatar() {
   );
 }
 
-/** Mira's text, then the catalog components code chose for this turn (validated again here). */
-export function AssistantMessage({ text, ui = [], actions }: { text: string; ui?: unknown[]; actions?: Actions }) {
+/** Mira's text, then the catalog components code chose for this turn (validated again here):
+ * rendered from the reply's A2UI messages (live and saved replies both carry them), else the
+ * plain list (if the server sent no A2UI). */
+export function AssistantMessage({ text, ui = [], a2ui, actions }: {
+  text: string;
+  ui?: unknown[];
+  a2ui?: unknown[];
+  actions?: Actions;
+}) {
   return (
     <div className="flex items-start gap-2.5">
       <Avatar />
@@ -71,7 +83,11 @@ export function AssistantMessage({ text, ui = [], actions }: { text: string; ui?
         <div className={`w-fit max-w-full break-words ${BUBBLE} rounded-tl-sm border border-white bg-gradient-to-br from-white via-white to-[#FFF4EC] px-4 py-3 shadow-[0_1px_0_#fff_inset,0_-2px_0_rgba(17,17,17,0.04)_inset,0_14px_30px_-18px_rgba(17,17,17,0.45),0_2px_5px_rgba(17,17,17,0.06),0_0_0_1px_rgba(17,17,17,0.04)] text-brand-md sm:max-w-[85%] lg:max-w-[46rem]`}>
           <Markdown text={text} />
         </div>
-        {actions && ui.length > 0 && <UIBlocks components={ui} actions={actions} />}
+        {actions && a2ui && a2ui.length > 0 ? (
+          <A2uiReply messages={a2ui} ui={ui} actions={actions} />
+        ) : (
+          actions && ui.length > 0 && <UIBlocks components={ui} actions={actions} />
+        )}
       </div>
     </div>
   );
@@ -96,13 +112,24 @@ export function ThinkingIndicator({ step, stage }: { step: string | null; stage:
   );
 }
 
-export function MessageList({ items, thinking, step, stage, send }: {
+/** An A2UI v1.0 action message for a click. A2uiReply fills in its surface and component;
+ * a reply rendered without A2UI uses these placeholders. */
+export function actionMessage(a: CardAction, surfaceId = "saved-reply", sourceComponentId = "root"): ActionMessage {
+  return {
+    version: "1.0",
+    action: { name: a.name, surfaceId, sourceComponentId, timestamp: new Date().toISOString(), context: a.context },
+  };
+}
+
+export function MessageList({ items, thinking, step, stage, send, sendAction }: {
   items: ChatItem[];
   thinking: boolean;
   step: string | null;
   stage: number;
   send: (text: string) => void;
+  sendAction: (action: ActionMessage, label: string) => void;
 }) {
+  const act = (a: CardAction, label: string) => sendAction(actionMessage(a), label);
   const lastMira = [...items].reverse().find((m) => m.role === "mira")?.id;
   return (
     <ol className="flex flex-col gap-4" aria-label="Conversation">
@@ -113,7 +140,7 @@ export function MessageList({ items, thinking, step, stage, send }: {
           ) : m.role === "specialist" ? (
             <SpecialistMessage text={m.text} />
           ) : (
-            <AssistantMessage text={m.text} ui={m.ui} actions={{ send, busy: thinking, latest: m.id === lastMira }} />
+            <AssistantMessage text={m.text} ui={m.ui} a2ui={m.a2ui} actions={{ send, act, sendAction, busy: thinking, latest: m.id === lastMira }} />
           )}
         </li>
       ))}

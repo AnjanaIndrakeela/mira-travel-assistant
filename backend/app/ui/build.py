@@ -30,7 +30,9 @@ NOTICE: dict[str, str] = {
     "custom_request": "Our team can plan a trip like this for you. Leave your email and we'll be in touch.",
     "unanswered_question": "Our team can answer this for you. Leave your email and they'll reply.",
     "handoff": "Leave your email and a travel specialist will get back to you.",
-    "custom_plan": "None of these quite right? Our team can build a custom plan around your dates and "
+    "planned": "Your plan is a draft: our team will check it, confirm the hotels and send you a "
+               "price. Leave your email so they can reach you.",
+    "custom_plan": "Not quite right? Our team can build a custom plan around your dates and "
                    "interests. We'll send you a price once it's planned.",
 }
 
@@ -55,6 +57,26 @@ def _highlights(doc: Any) -> list[str]:
     return [_clip(mask_money(i, "tour"), 160) for i in items if i][:3]
 
 
+MAX_HOTELS = 10
+LIST_ITEM = re.compile(r"^\s*(?:\d+[.)]|[-*])\s+")
+
+
+def _hotels(doc: Any) -> list[str]:
+    """Where the tour stays, from the published page only (never invented):
+    its "Route and hotels" list, else the day-by-day stays with their nights, else the hotel
+    list in its front matter. A day tour has none."""
+    section = next((s for s in doc.sections if "hotel" in s.heading.lower()), None)
+    if section:
+        items = [LIST_ITEM.sub("", ln).strip() for ln in section.text.splitlines() if LIST_ITEM.match(ln)]
+    elif stays := [d.accommodation.strip() for d in doc.itinerary
+                   if d.accommodation and d.accommodation.strip().lower() not in {"none", "-", "n/a"}]:
+        nights = {s: stays.count(s) for s in dict.fromkeys(stays)}
+        items = [f"{s} ({n} night{'s' * (n != 1)})" if n > 1 else s for s, n in nights.items()]
+    else:
+        items = [str(h) for h in doc.meta.get("hotels") or []]
+    return [_clip(mask_money(i, "tour"), 160) for i in items if i][:MAX_HOTELS]
+
+
 def tour_card(tour_id: str, *, content: Any, rates: Any, why: str | None = None) -> dict | None:
     doc = content.get_published(tour_id)
     if doc is None or doc.type != "tour":
@@ -69,10 +91,12 @@ def tour_card(tour_id: str, *, content: Any, rates: Any, why: str | None = None)
         "duration": _clip(str(doc.meta.get("duration", "")), 40) or "Ask us",
         "start": _clip(str(start), 120) if start else None,
         "highlights": _highlights(doc), "why": _clip(why, 200) if why else None,
+        "hotels": _hotels(doc),
         "accent": accent_for(doc.id),
         "bookable": doc.id in rates.tours and not doc.expired_offer,
         "source": {"doc_id": doc.id, "title": _clip(doc.title, 120)},
-        "images": photos.for_tour(doc, 3),
+        # the stops the card names ("Visits Galle, Yala") come first, so photos and text agree
+        "images": photos.for_tour(doc, 3, first=photos.places_in(why) if why else ()),
     }
 
 
@@ -104,6 +128,20 @@ def photo_gallery(state: dict) -> dict | None:
              if p in photos.library() or photos.ALIASES.get(p) in photos.library()]
     title = "Places on your list" if not names else "Your trip: " + ", ".join(names[:4])
     return {"type": "photo_gallery", "title": _clip(title, 120), "images": images}
+
+
+def trip_plan(state: dict) -> dict | None:
+    """The planner agent's draft for this trip (checked by code before it got here)."""
+    plan = state.get("trip_plan") if state.get("plan_shown") else None
+    if not plan:
+        return None
+    return {"type": "trip_plan", "title": _clip(mask_money(plan["title"], "tour"), 120),
+            "overview": _clip(mask_money(plan["overview"], "tour"), 1200),
+            "days": [{"day": d["day"], "title": _clip(mask_money(d["title"], "tour"), 160),
+                      "description": _clip(mask_money(d["description"], "tour"), 1200),
+                      "stay": _clip(d["stay"], 160) if d.get("stay") else None} for d in plan["days"][:MAX_DAYS]],
+            "sources": [{"doc_id": s["doc_id"], "title": _clip(s["title"], 120)} for s in plan.get("sources") or []][:8],
+            "images": photos.for_places(plan.get("places") or [], 3)}
 
 
 def plan_summary(state: dict) -> str | None:
@@ -146,6 +184,9 @@ def choose_components(state: dict, *, content: Any, rates: Any) -> list[dict]:
     q, quote_id = state.get("quote"), state.get("quote_id")
     action = state.get("action")
 
+    plan = trip_plan(state)
+    if plan:              # the plan written for this trip first; the closest published tour after it
+        ui.append(plan)
     if q:
         if card := tour_card(q["tour_id"], content=content, rates=rates):
             ui.append(card)
@@ -154,12 +195,10 @@ def choose_components(state: dict, *, content: Any, rates: Any) -> list[dict]:
             ui.append({"type": "booking_form", "quote_id": quote_id,
                        "fields": ["name", "email", "phone", "card"]})
 
-    if state.get("assumed_tour") and not state.get("tour_cards"):
-        # we picked the closest match: the other matches follow (all of them if none could be priced)
-        shown = q["tour_id"] if q else None
-        for tid in [t for t in state.get("suggested_tour_ids") or [] if t != shown][:2 if q else 3]:
-            if card := tour_card(tid, content=content, rates=rates):
-                ui.append(card)
+    if state.get("assumed_tour") and not state.get("tour_cards") and not q:
+        # we picked the closest match but couldn't price it: show that one tour, no others
+        if (tid := state.get("selected_tour_id")) and (card := tour_card(tid, content=content, rates=rates)):
+            ui.append(card)
 
     if reason := notice_reason(state):
         if reason == "custom_request" and (gallery := photo_gallery(state)):
@@ -173,13 +212,15 @@ def choose_components(state: dict, *, content: Any, rates: Any) -> list[dict]:
             if card := tour_card(c["tour_id"], content=content, rates=rates, why=c.get("why")):
                 ui.append(card)
         top = next((c["tour_id"] for c in cards if itinerary_days(c["tour_id"], content=content)), None)
-        if top and action == "match_tours":
+        if top and action == "match_tours" and not plan:
             ui.extend(itinerary_days(top, content=content))
-        if action == "match_tours" and state.get("destinations") and (gallery := photo_gallery(state)):
+        if action == "match_tours" and state.get("destinations") and not plan and (gallery := photo_gallery(state)):
             ui.insert(0, gallery)                          # the places they asked about, then the tours
         if action == "match_tours" and not reason:     # 12.3: offer a custom plan, never a price
-            ui.append({"type": "specialist_notice", "reason": "custom_plan", "message": NOTICE["custom_plan"],
-                       "enquiry_id": None, "summary": plan_summary(state)})
+            ui.append({"type": "specialist_notice", "reason": "custom_plan",
+                       "message": NOTICE["planned" if plan else "custom_plan"],
+                       "enquiry_id": state.get("plan_enquiry_id") if plan else None,
+                       "summary": plan_summary(state)})
     elif (action == "retrieve" and state.get("intent") == "tour_info" and not q and not reason
           and state.get("tour_mention")                  # named in THIS message, not remembered
           and (tid := state.get("selected_tour_id"))):
@@ -187,8 +228,12 @@ def choose_components(state: dict, *, content: Any, rates: Any) -> list[dict]:
             ui.append(card)
             ui.extend(itinerary_days(tid, content=content))
 
+    if plan and action != "match_tours" and not reason:     # priced the closest tour: the plan still goes to the team
+        ui.append({"type": "specialist_notice", "reason": "custom_plan", "message": NOTICE["planned"],
+                   "enquiry_id": state.get("plan_enquiry_id"), "summary": plan_summary(state)})
+
     if state.get("question") and {"adults", "child_ages"} & set(state.get("missing") or []):
-        party = state.get("party") or {}
+        party = state.get("party") or state.get("remembered_party") or {}    # last visit's answer as a start
         ui.append({"type": "traveller_picker", "adults": party.get("adults") or 2,
                    "child_ages": list(party.get("child_ages") or []),
                    "ask_child_ages": bool(state.get("children_without_age"))})

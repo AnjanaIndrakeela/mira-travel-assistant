@@ -192,19 +192,25 @@ def suggest_tours(tours: list[CatalogTour], *, interests: list[str], destination
     Anuradhapura" shows tours that go there even if an earlier trip was about wildlife."""
     named = {slug(d) for d in destinations}
     from_interests = wanted_places(interests, []) - named
+    # one group of places per kind of trip asked for ("beaches", "wildlife"): a tour that covers
+    # every kind beats one that visits many places of a single kind
+    groups = [g for g in dict.fromkeys(frozenset(wanted_places([i], []) - named) for i in interests) if g]
     interest_weight = 1.5 if named else 3.0
     scored = []
     for t in tours:
         if t.expired or (t.stale and t.kind is None):   # an expired offer, or an older page with no rates
             continue
-        hit_named, hit_interest = named & set(t.destinations), from_interests & set(t.destinations)
+        stops = set(t.destinations)
+        hit_named, hit_interest = named & stops, from_interests & stops
         overlap = hit_named | hit_interest
         score = 3 * len(hit_named) / len(named) if named else 0.0
-        if from_interests:
-            score += interest_weight * len(hit_interest) / len(from_interests)
+        if groups:
+            covered = sum(1 for g in groups if g & stops)
+            depth = sum(len(g & stops) / len(g) for g in groups)
+            score += interest_weight * (covered + 0.25 * depth) / (1.25 * len(groups))
         score += sum(0.3 for i in interests if i and i.lower()[:5] in t.text)
-        if days and t.days:
-            score += 1 - min(1.0, abs(t.days - days) / days)
+        if days and t.days:                       # the length they asked for matters as much as a place
+            score += 2 * (1 - min(1.0, abs(t.days - days) / days))
         if trip_type == "day" and t.kind == "day" or trip_type == "multi_day" and t.kind == "multi_day":
             score += 0.5
         if t.stale:
@@ -235,3 +241,8 @@ def live_tours(content: ContentLibrary, rates: RateBook) -> list[CatalogTour]:
 
 def refresh_live_tours(content: ContentLibrary, rates: RateBook) -> None:
     _LIVE[:] = catalog(content, rates)
+
+
+def tour_name(tour_id: str) -> str | None:
+    """The title of a tour already loaded for the chat (None before the first turn loads them)."""
+    return next((t.name for t in _LIVE if t.tour_id == tour_id), None)

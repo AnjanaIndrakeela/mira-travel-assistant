@@ -18,10 +18,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.api.schemas import BookingOut, BookingRequest
+from app.api.schemas import BookingOut, BookingRequest, HotelStayOut
+from app.booking import hotels as hotel_booking
 from app.booking.mock_payment import BRAND_NAMES, charge, check_card, digits_of
 from app.core.config import get_settings
-from app.db.models import Booking, Enquiry, Quote
+from app.db.models import Booking, Enquiry, HotelReservation, Quote
 from app.db.repo import create_enquiry
 from app.pricing import QuoteRequest, calculate_quote
 
@@ -91,10 +92,25 @@ def book(req: BookingRequest, db: Session = Depends(get_db)) -> BookingOut:
     booking = Booking(quote_id=quote.id, status="confirmed", payment_ref=result.reference, **kept)
     paid_with = f"{BRAND_NAMES[card.brand]} ending {kept['card_last4']}"
     db.add(booking)
+    db.flush()
+    # the hotels go with the tour: each stay from the rate sheet, rooms as priced (mock bookings)
+    from app.data_loader import get_dataset
+    booked = []
+    for s in hotel_booking.stays(quote.tour_id, quote.start_date, quote.adults, quote.child_ages or [],
+                                 get_dataset().rates):
+        row = HotelReservation(booking_id=booking.id, hotel_id=s["hotel_id"], hotel_name=s["hotel"],
+                               check_in=s["check_in"], check_out=s["check_out"], nights=s["nights"],
+                               rooms=s["rooms"], reference=hotel_booking.reference())
+        db.add(row)
+        booked.append(row)
     # the quote's own enquiry (R7) gets the contact and the outcome, for the team's follow-up
     enquiry = db.scalar(select(Enquiry).where(Enquiry.quote_id == quote.id, Enquiry.kind == "quote")
                         .order_by(Enquiry.created_at.desc()))
     note = f"Booked (mock). Deposit USD {quote.deposit_usd} paid with {paid_with}, ref {result.reference}."
+    if booked:
+        note += "\nHotels booked (mock): " + "; ".join(
+            f"{h.hotel_name}, {h.check_in:%d %b} to {h.check_out:%d %b %Y} ({h.nights} night"
+            f"{'s' if h.nights > 1 else ''}, {h.rooms}), ref {h.reference}" for h in booked)
     if enquiry is None:
         enquiry = create_enquiry(db, "quote", quote=quote, contact=contact, notes=note)
     else:
@@ -106,6 +122,11 @@ def book(req: BookingRequest, db: Session = Depends(get_db)) -> BookingOut:
            + ("(the full price)." if paid_all else
               f"as the deposit; the balance of USD {quote.balance_usd:,} is due by "
               f"{quote.balance_due.day} {quote.balance_due:%B %Y}."))
+    if booked:
+        msg += f" Your {len(booked)} hotel stay{'s are' if len(booked) > 1 else ' is'} booked too."
     return BookingOut(status="confirmed", message=msg, booking_id=booking.id,
                       payment_reference=result.reference, amount_charged_usd=quote.deposit_usd,
-                      enquiry_id=enquiry.id, card=paid_with)
+                      enquiry_id=enquiry.id, card=paid_with,
+                      hotels=[HotelStayOut(hotel=h.hotel_name, check_in=h.check_in, check_out=h.check_out,
+                                           nights=h.nights, rooms=h.rooms, reference=h.reference)
+                              for h in booked])

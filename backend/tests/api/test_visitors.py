@@ -1,7 +1,7 @@
 """Phase 17A (R2): returning visitors.
 
 - persist remembers the party, traveller type and last quote on the visitor row (17.2)
-- a new conversation starts with the known party, so Mira doesn't ask again (17.3, 17.5)
+- a new conversation still asks who is travelling; the picker starts from last time's party
 - /visitors/{id}/welcome re-prices the last quote: a new quote row when still valid, and no
   old price when it no longer prices (17.4)
 """
@@ -26,7 +26,7 @@ def test_persist_remembers_party_type_and_last_quote(api, db):
     assert visitor.last_quote_id == quote.id
 
 
-def test_new_conversation_starts_with_the_known_party(api, db):
+def test_new_conversation_asks_who_is_travelling_with_last_party_preset(api, db):
     first = api.use(s02_model()).chat(S02).json()
     # a new conversation, same visitor: names the tour and date only, never the party
     api.use(FakeModel(RouterDecision=[R("quote", "Sigiriya and Minneriya day tour from Kandy")],
@@ -35,9 +35,9 @@ def test_new_conversation_starts_with_the_known_party(api, db):
     second = api.chat("The Sigiriya and Minneriya day tour from Kandy on 12 January 2027, please.",
                       visitor_id=first["visitor_id"]).json()
     assert second["conversation_id"] != first["conversation_id"]
-    assert second["quote_id"], second["message"]                 # priced without asking how many
-    q = db.get(Quote, uuid.UUID(second["quote_id"]))
-    assert (q.adults, q.child_ages) == (2, [])
+    assert second["quote_id"] is None, second["message"]         # never priced without asking
+    picker = next(c for c in second["ui"] if c["type"] == "traveller_picker")
+    assert (picker["adults"], picker["child_ages"]) == (2, [])  # starts from last time's answer
 
 
 def test_new_visitor_is_not_prefilled(api):
@@ -56,6 +56,8 @@ def test_welcome_re_prices_a_valid_last_quote(api, db):
     body = r.json()
     assert body["status"] == "ok" and body["quote_id"] and body["quote_id"] != str(quote.id)   # a new row
     assert body["ui"] == [{"type": "welcome_back", "tour_title": quote.tour_name, "quote_id": body["quote_id"]}]
+    comps = body["a2ui"][1]["updateComponents"]["components"]                 # the same card, as A2UI
+    assert [c["component"] for c in comps] == ["MiraReply", "WelcomeBack"] and comps[1]["quote_id"] == body["quote_id"]
     fresh = api.client.get(f"/api/v1/quotes/{body['quote_id']}").json()
     assert fresh["price_usd"] == 315 and "cost" not in str(body).lower()
     assert db.get(Visitor, visitor.id).last_quote_id == uuid.UUID(body["quote_id"])

@@ -87,6 +87,8 @@ class TourCard(_Component):
     start: T120 | None = None
     highlights: list[T160] = Field(default_factory=list, max_length=4)
     why: T200 | None = None
+    hotels: list[T160] = Field(default_factory=list, max_length=10,
+                               description="Where the tour stays, from its published page")
     accent: Accent
     bookable: bool = Field(description="Mira can price it instantly")
     source: SourceRef
@@ -166,13 +168,32 @@ class WelcomeBack(_Component):
     quote_id: uuid.UUID | None = None
 
 
+class PlanDay(_Component):
+    day: int = Field(ge=1, le=14)
+    title: T160
+    description: T1200
+    stay: T160 | None = Field(default=None, description="Tonight's hotel, as our pages name it")
+
+
+class TripPlan(_Component):
+    """A custom plan the planner agent wrote for this traveller from our published content (RAG).
+    A draft: no price; the team confirms and prices it from the saved enquiry."""
+
+    type: Literal["trip_plan"]
+    title: T120
+    overview: T1200
+    days: list[PlanDay] = Field(min_length=1, max_length=14)
+    sources: list[SourceRef] = Field(default_factory=list, max_length=8)
+    images: list[Image] = Field(default_factory=list, max_length=3)
+
+
 UIComponent = Annotated[
     Union[TravellerPicker, TourCard, ItineraryDay, PriceBreakdown, BookingForm, SpecialistNotice,
-          SourceList, WelcomeBack, PhotoGallery],
+          SourceList, WelcomeBack, PhotoGallery, TripPlan],
     Field(discriminator="type"),
 ]
 COMPONENT_TYPES = ("traveller_picker", "tour_card", "itinerary_day", "price_breakdown", "booking_form",
-                   "specialist_notice", "source_list", "welcome_back", "photo_gallery")
+                   "specialist_notice", "source_list", "welcome_back", "photo_gallery", "trip_plan")
 ADAPTER: TypeAdapter[UIComponent] = TypeAdapter(UIComponent)
 
 

@@ -6,8 +6,11 @@ start a new conversation (the client never chooses database IDs).
 
 /chat/stream sends the same turn as an AG-UI-style event stream (Server-Sent Events):
 RUN_STARTED -> STEP_FINISHED per graph node -> TEXT_MESSAGE_START/CONTENT/END ->
-CUSTOM "ui_component" per validated catalog component -> RUN_FINISHED (with the full
+CUSTOM "a2ui" per A2UI v1.0 message (createSurface, updateComponents) -> RUN_FINISHED (with the full
 ChatResponse), or RUN_ERROR. /chat returns the ChatResponse as plain JSON (tests, evals).
+
+A request carries the traveller's typed `message` or, for a click on a card, an A2UI `action`
+message (app.ui.actions); the server writes the action's words and the turn runs the same way.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_chat_graph, get_db
+from app.ui.a2ui import to_a2ui
 from app.api.schemas import ChatMessage, ChatRequest, ChatResponse, ConversationOut, Source
 from app.db.models import Conversation, Visitor
 from app.db.repo import create_enquiry
@@ -76,17 +80,19 @@ def _turn(db: Session, graph, conv: Conversation, message: str, on_step=None) ->
         ui, _ = validate_ui([{"type": "specialist_notice", "reason": "handoff", "message": NOTICE["handoff"],
                               "enquiry_id": str(enquiry.id)}], quote_id=None)
         return ChatResponse(conversation_id=conv.id, visitor_id=conv.visitor_id, message=replies.HANDOFF,
-                            ui=ui, enquiry_id=enquiry.id)
+                            ui=ui, a2ui=to_a2ui(ui, f"reply-{uuid.uuid4().hex[:12]}"), enquiry_id=enquiry.id)
     ui = result.get("ui") or []
     sources = next((c["items"] for c in ui if c["type"] == "source_list"), [])
+    # one surface per reply; ui was validated against the catalog by build_ui before this point
+    surface = f"reply-{result.get('turn') or 0}-{uuid.uuid4().hex[:8]}"
     return ChatResponse(conversation_id=conv.id, visitor_id=conv.visitor_id, message=result["response"],
-                        ui=ui, sources=[Source(**s) for s in sources],
+                        ui=ui, a2ui=to_a2ui(ui, surface), sources=[Source(**s) for s in sources],
                         quote_id=_uuid(result.get("quote_id")), enquiry_id=_uuid(result.get("enquiry_id")))
 
 
 @router.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest, db: Session = Depends(get_db), graph=Depends(get_chat_graph)) -> ChatResponse:
-    return _turn(db, graph, _conversation(db, req), req.message)
+    return _turn(db, graph, _conversation(db, req), req.text)
 
 
 def _sse(event: dict[str, Any]) -> str:
@@ -108,7 +114,7 @@ async def chat_stream(req: ChatRequest, db: Session = Depends(get_db),
 
     def work() -> None:
         try:
-            out: ChatResponse | None = _turn(db, graph, conv, req.message, on_step=step)
+            out: ChatResponse | None = _turn(db, graph, conv, req.text, on_step=step)
         except Exception as exc:  # noqa: BLE001  (e.g. the database is down)
             logger.error("chat stream failed: %s", exc.__class__.__name__)
             out = None
@@ -132,12 +138,32 @@ async def chat_stream(req: ChatRequest, db: Session = Depends(get_db),
         yield _sse({"type": "TEXT_MESSAGE_START", "messageId": msg_id, "role": "assistant"})
         yield _sse({"type": "TEXT_MESSAGE_CONTENT", "messageId": msg_id, "delta": res["message"]})
         yield _sse({"type": "TEXT_MESSAGE_END", "messageId": msg_id})
-        for component in res["ui"]:
-            yield _sse({"type": "CUSTOM", "name": "ui_component", "value": component})
+        # the reply's UI as A2UI v1.0 messages over AG-UI (A2UI's standard transport): one CUSTOM
+        # event per message, already validated against the catalog (build_ui, then to_a2ui)
+        for message in res["a2ui"]:
+            yield _sse({"type": "CUSTOM", "name": "a2ui", "value": message})
         yield _sse({"type": "RUN_FINISHED", "threadId": thread_id, "runId": run_id, "result": res})
 
     return StreamingResponse(events(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204)
+def delete_conversation(conversation_id: uuid.UUID, visitor_id: uuid.UUID, db: Session = Depends(get_db),
+                        graph=Depends(get_chat_graph)) -> None:
+    """"New chat": the traveller's old chat is deleted (its messages and cards). Only the visitor
+    who owns it can delete it. Staff records stay: quotes, enquiries and specialist replies keep
+    their own copies and just lose the link to the chat (ON DELETE SET NULL). What R2 remembers
+    about the visitor (party, interests, last quote) is kept on the visitor, not the chat."""
+    conv = db.get(Conversation, conversation_id)
+    if conv is None or conv.visitor_id != visitor_id:
+        raise HTTPException(404, "We couldn't find that conversation.")
+    try:
+        graph.checkpointer.delete_thread(conv.thread_id)
+    except Exception as exc:  # noqa: BLE001  (the thread may already be gone after a restart)
+        logger.warning("delete_thread failed: %s", exc.__class__.__name__)
+    db.delete(conv)
+    db.commit()
 
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationOut)
@@ -152,8 +178,11 @@ def conversation(conversation_id: uuid.UUID, db: Session = Depends(get_db),
     replies = [i for i, m in enumerate(msgs) if not isinstance(m, HumanMessage)]
     log = list(state.get("ui_log") or [])[-len(replies):] if replies else []
     ui_at = dict(zip(replies[len(replies) - len(log):], log))
+    # saved cards are turned into A2UI here, so a reloaded chat renders like a live one; to_a2ui
+    # checks each against today's catalog and drops one an older version of the app saved
+    short = conv.id.hex[:8]
     messages = [ChatMessage(role="traveller" if isinstance(m, HumanMessage) else "mira", text=text_of(m),
-                            ui=ui_at.get(i, []))
+                            ui=ui_at.get(i, []), a2ui=to_a2ui(ui_at.get(i, []), f"saved-{short}-{i}"))
                 for i, m in enumerate(msgs)]
     # a specialist's replies, exactly as written, where they were sent (never in the graph state)
     from app import specialist

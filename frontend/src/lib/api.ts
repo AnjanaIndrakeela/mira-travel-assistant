@@ -10,11 +10,28 @@ export const mediaUrl = (path: string) => API_URL.replace(/\/api\/v1$/, "") + pa
 export type Source = { n: number; doc_id: string; title: string; section: string };
 export type UIComponent = { type: string; [key: string]: unknown };
 
+/** A click on a card, sent as an A2UI v1.0 action message (the server writes its words). */
+export type ActionMessage = {
+  version: "1.0";
+  action: {
+    name: string;
+    surfaceId: string;
+    sourceComponentId: string;
+    timestamp: string;
+    context: Record<string, unknown>;
+  };
+};
+
+/** What the traveller sends in one turn: typed text, or a click as an A2UI action. */
+export type TurnInput = { message: string } | { action: ActionMessage };
+
 export type ChatResponse = {
   conversation_id: string;
   visitor_id: string;
   message: string;
   ui: UIComponent[];
+  /** The same components as A2UI v1.0 messages (createSurface, updateComponents); rendered first. */
+  a2ui?: unknown[];
   sources: Source[];
   quote_id: string | null;
   enquiry_id: string | null;
@@ -48,15 +65,24 @@ function write(key: string, value: string | null): void {
 export const ids = {
   conversation: () => read(KEYS.conversation),
   visitor: () => read(KEYS.visitor),
-  /** Start a new conversation; the visitor ID is kept (R2: returning visitors). */
-  startOver: () => write(KEYS.conversation, null),
+  /** Start a new conversation and delete the old one on the server; the visitor ID is kept
+   * (R2: returning visitors). A failed delete never blocks the new chat. */
+  startOver: () => {
+    const conversation = read(KEYS.conversation);
+    const visitor = read(KEYS.visitor);
+    write(KEYS.conversation, null);
+    if (conversation && visitor) {
+      const q = new URLSearchParams({ visitor_id: visitor });
+      fetch(`${API_URL}/conversations/${conversation}?${q}`, { method: "DELETE" }).catch(() => {});
+    }
+  },
   /** Open a chat from the link in a specialist's email (?chat=<id>), on any device. */
   openConversation: (id: string) => {
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) write(KEYS.conversation, id);
   },
-  /** "Start fresh": forget this browser's visitor too, so nothing from last time is reused. */
+  /** "Start fresh": delete the chat and forget this browser's visitor too, so nothing from last time is reused. */
   forgetVisitor: () => {
-    write(KEYS.conversation, null);
+    ids.startOver();
     write(KEYS.visitor, null);
   },
 };
@@ -109,7 +135,13 @@ export async function sendChat(message: string): Promise<ChatResponse> {
 
 /** One message of the saved chat; Mira's replies carry the cards shown with them. A
  * "specialist" message is a person on the team, shown exactly as they wrote it. */
-export type HistoryMessage = { role: "traveller" | "mira" | "specialist"; text: string; ui?: UIComponent[] };
+export type HistoryMessage = {
+  role: "traveller" | "mira" | "specialist";
+  text: string;
+  ui?: UIComponent[];
+  /** The reply's cards as A2UI v1.0 messages, rebuilt by the server from the saved cards. */
+  a2ui?: unknown[];
+};
 
 /** The current conversation's messages (kept in the server's database), or [] if there is none. */
 export async function loadHistory(): Promise<HistoryMessage[]> {
@@ -123,7 +155,7 @@ export async function loadHistory(): Promise<HistoryMessage[]> {
   }
 }
 
-export type Welcome = { message: string; ui: UIComponent[]; quote_id: string | null; status: string };
+export type Welcome = { message: string; ui: UIComponent[]; a2ui?: unknown[]; quote_id: string | null; status: string };
 
 /** R2: a returning visitor's welcome, with the last quote re-priced today (null for a new visitor). */
 export async function loadWelcome(): Promise<Welcome | null> {
@@ -159,8 +191,8 @@ export const STEP_LABELS: Record<string, string> = {
  * One turn over the AG-UI-style SSE stream (POST /chat/stream). `onStep` gets each finished
  * graph node; the promise resolves with the same ChatResponse as POST /chat.
  */
-export async function streamChat(message: string, onStep: (step: string) => void): Promise<ChatResponse> {
-  const payload: Record<string, string> = { message };
+export async function streamChat(input: TurnInput, onStep: (step: string) => void): Promise<ChatResponse> {
+  const payload: Record<string, unknown> = { ...input };
   const conversation = ids.conversation();
   const visitor = ids.visitor();
   if (conversation) payload.conversation_id = conversation;
@@ -268,6 +300,17 @@ export type BookingResult = {
   field: "holder" | "brand" | "number" | "expiry" | "cvc" | null;
   /** "Visa ending 4242" on a confirmed booking. */
   card: string | null;
+  /** The hotel stays booked with the tour (none for a day tour). */
+  hotels?: HotelStay[];
+};
+
+export type HotelStay = {
+  hotel: string;
+  check_in: string;
+  check_out: string;
+  nights: number;
+  rooms: string;
+  reference: string;
 };
 
 export type CardPayload = {

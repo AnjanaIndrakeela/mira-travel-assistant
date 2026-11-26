@@ -12,7 +12,7 @@ from app.data_loader import get_dataset
 from app.guards.ui_validator import validate_ui
 from app.ui.build import accent_for, choose_components, itinerary_days, tour_card
 from app.ui.catalog import ADAPTER, COMPONENT_TYPES, PriceBreakdown, json_schema
-from app.ui.export import DEFAULT, render
+from app.ui.export import A2UI_DEFAULT, DEFAULT, a2ui_catalog, render, render_a2ui
 
 QID = str(uuid.uuid4())
 SRC = {"doc_id": "T01", "title": "Sigiriya and Minneriya day tour"}
@@ -31,10 +31,10 @@ def card(**over):
 
 # ---- 11.2 / 11.3 catalog ----------------------------------------------------------------
 
-def test_catalog_has_the_nine_components():
+def test_catalog_has_the_ten_components():
     assert set(COMPONENT_TYPES) == {"traveller_picker", "tour_card", "itinerary_day", "price_breakdown",
                                     "booking_form", "specialist_notice", "source_list", "welcome_back",
-                                    "photo_gallery"}
+                                    "photo_gallery", "trip_plan"}
     names = {s["properties"]["type"]["const"] for s in json_schema()["$defs"].values() if "type" in s.get("properties", {})}
     assert names == set(COMPONENT_TYPES)
 
@@ -56,6 +56,27 @@ def test_exported_schema_matches_the_catalog():
     if not path.exists():
         pytest.skip("frontend/src/lib is not mounted in this container")
     assert json.loads(path.read_text(encoding="utf-8")) == json.loads(render()), "run: python -m app.ui.export"
+
+
+def test_a2ui_catalog_has_every_component_from_the_pydantic_models():
+    """The A2UI custom catalog is generated from the same models: same components, same props."""
+    cat = a2ui_catalog()
+    assert cat["catalogId"] == "https://ceylon-compass.example/catalog/v1"
+    assert {c["x-mira-type"] for c in cat["components"].values() if "x-mira-type" in c} == set(COMPONENT_TYPES)
+    assert cat["components"]["MiraReply"]["required"] == ["id", "component", "children"]
+    card = cat["components"]["TourCard"]
+    assert card["properties"]["component"] == {"const": "TourCard"} and "type" not in card["properties"]
+    assert {"id", "component", "tour_id", "source"} <= set(card["required"])
+    assert card["additionalProperties"] is False                     # no extra props, as in Pydantic
+    refs = json.dumps(cat["components"])
+    assert all(f"#/$defs/{name}" in refs for name in cat["$defs"])   # every shared type is used
+
+
+def test_exported_a2ui_catalog_is_up_to_date():
+    path = A2UI_DEFAULT
+    if not path.exists():
+        pytest.skip("frontend/src/lib is not mounted in this container")
+    assert json.loads(path.read_text(encoding="utf-8")) == json.loads(render_a2ui()), "run: python -m app.ui.export"
 
 
 # ---- 11.4 validator ---------------------------------------------------------------------
@@ -177,6 +198,19 @@ def test_cards_and_days_never_carry_money(ds):
         assert not rejected, (doc.id, rejected)
 
 
+def test_tour_cards_show_where_the_tour_stays(ds):
+    def hotels(tid):
+        return tour_card(tid, content=ds.content, rates=ds.rates)["hotels"]
+    # day-by-day stays, with their nights
+    assert hotels("T09") == ["Anuradhapura Heritage Lodge or similar (2 nights)", "Sigiriya Village or similar (2 nights)",
+                             "Hotel Suisse, Hotel Topaz or similar (2 nights)"]
+    # the page's own "Route and hotels" list
+    assert hotels("T12")[0] == "Negombo – Suriya Resort or similar" and len(hotels("T12")) == 9
+    # the front-matter list when the page has nothing else
+    assert hotels("T13") == ["Udawalawe Safari Camp", "Cinnamon Wild Yala"]
+    assert hotels("T01") == []                                    # a day tour: no hotel
+
+
 def test_draft_tour_never_becomes_a_card(ds):
     assert tour_card("T15", content=ds.content, rates=ds.rates) is None
 
@@ -200,3 +234,48 @@ def test_unmatched_tour_gets_one_notice_not_two(ds):
     state = {"action": "match_tours", "unmatched_tour": "Adam's Peak", "tour_cards": [{"tour_id": "T09", "why": "x"}]}
     ui = choose_components(state, content=ds.content, rates=ds.rates)
     assert [c["reason"] for c in ui if c["type"] == "specialist_notice"] == ["custom_request"]
+
+
+# ---- A2UI messages (step 4) --------------------------------------------------------------
+
+def test_a_reply_becomes_one_a2ui_surface_with_our_components_in_order():
+    from app.ui.a2ui import from_component, to_a2ui
+    from app.ui.export import CATALOG_ID
+    content = get_dataset().content
+    ui, _ = validate_ui([tour_card("T01", content=content, rates=get_dataset().rates),
+                         {"type": "price_breakdown", "quote_id": QID},
+                         {"type": "booking_form", "quote_id": QID, "fields": ["name", "email", "phone", "card"]}],
+                        quote_id=QID)
+    msgs = to_a2ui(ui, "reply-1")
+    assert [list(m)[1] for m in msgs] == ["createSurface", "updateComponents"]
+    assert all(m["version"] == "1.0" for m in msgs)
+    assert msgs[0]["createSurface"] == {"surfaceId": "reply-1", "catalogId": CATALOG_ID}
+    root, *parts = msgs[1]["updateComponents"]["components"]
+    assert root == {"id": "root", "component": "MiraReply", "children": ["c1", "c2", "c3"]}
+    assert [p["component"] for p in parts] == ["TourCard", "PriceBreakdown", "BookingForm"]
+    assert all("type" not in p for p in parts)
+    assert [from_component(p) for p in parts] == ui            # nothing lost or added on the way
+
+
+def test_no_components_means_no_surface():
+    from app.ui.a2ui import to_a2ui
+    assert to_a2ui([], "reply-2") == []
+
+
+def test_saved_cards_from_an_older_catalog_are_dropped_not_an_error():
+    """Step 8: a saved chat may hold cards an older app version wrote."""
+    from app.ui.a2ui import to_a2ui
+    good = {"type": "specialist_notice", "reason": "handoff", "message": "A specialist will get back to you."}
+    old = [{"type": "price_card", "price": 315}, {"no_type": True}, "text", {"type": "tour_card"}, good]
+    out = to_a2ui(old, "saved-1")
+    comps = out[1]["updateComponents"]["components"]
+    assert [c["component"] for c in comps] == ["MiraReply", "SpecialistNotice"]
+    assert to_a2ui(old[:4], "saved-2") == []
+
+
+def test_a2ui_conversion_drops_a_component_that_fails_the_round_trip():
+    from app.ui.a2ui import to_a2ui
+    bad = {"type": "price_breakdown", "quote_id": "not-a-uuid"}       # would never pass validate_ui
+    msgs = to_a2ui([bad, {"type": "price_breakdown", "quote_id": QID}], "reply-3")
+    parts = msgs[1]["updateComponents"]["components"][1:]
+    assert [p["id"] for p in parts] == ["c2"]
