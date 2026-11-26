@@ -3,7 +3,7 @@
 // Schema the backend exports (catalog.schema.json), so the two can't drift apart unnoticed.
 // Anything that fails here is not rendered at all.
 
-import { z } from "zod";
+import { z } from "zod/v4";
 
 // Same rules as the backend: no markup or script, and no money amounts in text props
 // (prices only ever come from /quotes/{id}).

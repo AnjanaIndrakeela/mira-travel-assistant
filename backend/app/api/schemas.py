@@ -10,9 +10,10 @@ import uuid
 from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.guards.input_guard import MAX_CHARS
+from app.ui.actions import A2uiActionMessage
 
 
 class _In(BaseModel):
@@ -24,8 +25,26 @@ class ChatRequest(_In):
         default=None, description="Omit to start a new conversation; send it back to continue one")
     visitor_id: uuid.UUID | None = Field(
         default=None, description="Anonymous ID kept by the browser; omit on the first visit")
-    message: str = Field(min_length=1, max_length=MAX_CHARS * 2,
-                         description="The traveller's message (longer than 2,000 characters is cut)")
+    message: str | None = Field(default=None, min_length=1, max_length=MAX_CHARS * 2,
+                                description="The traveller's message (longer than 2,000 characters is cut)")
+    action: A2uiActionMessage | None = Field(
+        default=None, description="A click on a card, as an A2UI v1.0 action message (instead of `message`)")
+
+    @model_validator(mode="after")
+    def _one_input(self):
+        if (self.message is None) == (self.action is None):
+            raise ValueError("Send either a message or an action.")
+        if self.action is not None:
+            self.action.checked_context()          # an action's context must match its type
+        return self
+
+    @property
+    def text(self) -> str:
+        """What the traveller said: their message, or the server's words for their click."""
+        if self.message is not None:
+            return self.message
+        from app.ui.actions import action_text
+        return action_text(self.action)
 
 
 class Source(BaseModel):
@@ -40,6 +59,9 @@ class ChatResponse(BaseModel):
     visitor_id: uuid.UUID
     message: str
     ui: list[dict[str, Any]] = Field(description="UI components from the fixed catalog, in order")
+    a2ui: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="The same components as A2UI v1.0 messages (createSurface + updateComponents)")
     sources: list[Source] = []
     quote_id: uuid.UUID | None = None
     enquiry_id: uuid.UUID | None = None
@@ -49,6 +71,7 @@ class ChatMessage(BaseModel):
     role: Literal["traveller", "mira", "specialist"]     # specialist: a person, not Mira
     text: str
     ui: list[dict[str, Any]] = []         # Mira's cards for that reply (already validated)
+    a2ui: list[dict[str, Any]] = []       # the same cards as A2UI v1.0 messages (one surface)
 
 
 class ConversationOut(BaseModel):

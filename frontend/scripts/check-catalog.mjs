@@ -4,7 +4,7 @@
 // It also proves the browser rejects bad payloads.
 
 import { readFileSync } from "node:fs";
-import { z } from "zod";
+import { z } from "zod/v4";
 
 import { catalog, parseComponent } from "../src/lib/catalog-schema.ts";
 

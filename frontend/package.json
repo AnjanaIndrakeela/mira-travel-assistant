@@ -8,13 +8,16 @@
     "build": "next build",
     "start": "next start -p 3010",
     "lint": "eslint",
-    "check:catalog": "node scripts/check-catalog.mjs"
+    "check:catalog": "node scripts/check-catalog.mjs",
+    "check:a2ui": "node scripts/check-a2ui.mjs"
   },
   "dependencies": {
-    "next": "15.5.29",
+    "@a2ui/react": "^0.16.1",
+    "@a2ui/web_core": "^0.16.1",
+    "next": "^16.4.6",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "zod": "^4.1.12"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

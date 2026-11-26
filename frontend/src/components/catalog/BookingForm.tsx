@@ -120,10 +120,10 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
             Thank you for booking with {site.name}. We can&apos;t wait to welcome you to Sri Lanka. Have a wonderful trip!
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Pill variant="outline" disabled={actions.busy} onClick={() => actions.send("What should I pack for this trip?")}>
+            <Pill variant="outline" disabled={actions.busy} onClick={() => actions.act({ name: "packing_tips", context: {}, component: "BookingForm" }, "What should I pack for this trip?")}>
               What should I pack?
             </Pill>
-            <Pill variant="outline" disabled={actions.busy} onClick={() => actions.send("I'd like to plan another trip.")}>
+            <Pill variant="outline" disabled={actions.busy} onClick={() => actions.act({ name: "plan_another", context: {}, component: "BookingForm" }, "I'd like to plan another trip.")}>
               Plan another trip
             </Pill>
           </div>
@@ -147,7 +147,7 @@ export function BookingForm({ quote_id, fields, actions }: Props) {
           <p>{result.message}</p>
           {result.next_steps.includes("new_quote") && (
             <div>
-              <Pill variant="outline" disabled={actions.busy} onClick={() => actions.send("Please give me a new quote for this trip.")}>
+              <Pill variant="outline" disabled={actions.busy} onClick={() => actions.act({ name: "new_quote", context: {}, component: "BookingForm" }, "Please give me a new quote for this trip.")}>
                 Get a new quote
               </Pill>
             </div>

@@ -113,6 +113,8 @@ def test_chat_s02_saves_quote_and_enquiry(api, db):
     body = r.json()
     assert r.status_code == 200 and "USD 315" in body["message"]
     assert [c["type"] for c in body["ui"]] == ["tour_card", "price_breakdown", "booking_form"]
+    a2ui = body["a2ui"][1]["updateComponents"]["components"]               # the same cards, as A2UI
+    assert [c["component"] for c in a2ui] == ["MiraReply", "TourCard", "PriceBreakdown", "BookingForm"]
     assert body["ui"][1] == {"type": "price_breakdown", "quote_id": body["quote_id"]}   # no price in the payload
     assert body["ui"][2]["quote_id"] == body["quote_id"] and body["ui"][0]["tour_id"] == "T01"
     quote = db.get(Quote, uuid.UUID(body["quote_id"]))
@@ -140,6 +142,11 @@ def test_same_conversation_keeps_context(api):
     assert [m["role"] for m in history] == ["traveller", "mira", "traveller", "mira"]
     # each reply comes back with its own cards, so a reloaded chat looks the same
     assert history[3]["ui"] == second["ui"] and history[0]["ui"] == history[2]["ui"] == []
+    # ...and as A2UI (step 8): the same components on a surface of its own, none for the traveller
+    saved = history[3]["a2ui"][1]["updateComponents"]["components"]
+    live = second["a2ui"][1]["updateComponents"]["components"]
+    assert saved == live and history[0]["a2ui"] == history[2]["a2ui"] == []
+    assert history[3]["a2ui"][0]["createSurface"]["surfaceId"].startswith("saved-")
 
 
 def test_s04_saves_a_flagged_no_price_enquiry(api, db):
@@ -263,6 +270,25 @@ def test_new_chat_deletes_the_old_one_but_keeps_staff_records(api, db):
     quote = db.get(Quote, uuid.UUID(body["quote_id"]))
     assert quote is not None and quote.conversation_id is None
     assert db.get(Enquiry, uuid.UUID(body["enquiry_id"])).conversation_id is None
+
+
+def test_a_click_comes_back_as_an_a2ui_action(api):
+    """Step 7: the traveller picker's Send is an A2UI action; the server writes the words."""
+    api.use(FakeModel(RouterDecision=[R("quote")], TripDetails=[T(adults=2, child_ages=[7, 10])]))
+    action = {"version": "1.0", "action": {"name": "set_travellers", "surfaceId": "reply-1-abc",
+                                           "sourceComponentId": "c1", "context": {"adults": 2, "child_ages": [7, 10]}}}
+    r = api.client.post("/api/v1/chat", json={"action": action})
+    assert r.status_code == 200
+    history = api.client.get(f"/api/v1/conversations/{r.json()['conversation_id']}").json()["messages"]
+    assert (history[0]["role"], history[0]["text"]) == ("traveller", "We are 2 adults and 2 children aged 7, 10.")
+
+
+def test_a_bad_action_is_rejected_before_the_graph(api):
+    api.use(FakeModel())
+    bad = {"version": "1.0", "action": {"name": "get_price", "surfaceId": "s", "sourceComponentId": "c1",
+                                        "context": {"tour_id": "<script>"}}}
+    assert api.client.post("/api/v1/chat", json={"action": bad}).status_code == 422
+    assert api.client.post("/api/v1/chat", json={}).status_code == 422
 
 
 def test_unknown_conversation_starts_a_new_one(api):
@@ -510,9 +536,14 @@ def test_stream_sends_steps_text_components_and_the_result(api, db):
     assert steps[:2] == ["load_visitor", "guard"] and "price" in steps and steps[-1] == "build_ui"
     text = next(e for e in events if e["type"] == "TEXT_MESSAGE_CONTENT")["delta"]
     assert "USD 315" in text
-    ui = [e["value"]["type"] for e in events if e["type"] == "CUSTOM" and e["name"] == "ui_component"]
-    assert ui == ["tour_card", "price_breakdown", "booking_form"]
+    a2ui = [e["value"] for e in events if e["type"] == "CUSTOM" and e["name"] == "a2ui"]
+    assert [next(k for k in m if k != "version") for m in a2ui] == ["createSurface", "updateComponents"]
+    assert a2ui[0]["createSurface"]["surfaceId"] == a2ui[1]["updateComponents"]["surfaceId"]
+    parts = [c["component"] for c in a2ui[1]["updateComponents"]["components"]]
+    assert parts == ["MiraReply", "TourCard", "PriceBreakdown", "BookingForm"]
+    assert not [e for e in events if e.get("name") == "ui_component"]         # replaced by A2UI
     result = events[-1]["result"]
+    assert result["a2ui"] == a2ui and [c["type"] for c in result["ui"]] == ["tour_card", "price_breakdown", "booking_form"]
     assert result["message"] == text and db.get(Quote, uuid.UUID(result["quote_id"])).price_usd == 315
     assert events[0]["threadId"] == result["conversation_id"]
 

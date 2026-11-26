@@ -121,7 +121,10 @@ export function TourCard({ tour_id, title, duration, start, highlights, why, hot
             icon="arrow"
             disabled={actions.busy}
             onClick={() =>
-              actions.send(bookable ? `I'd like a price for the ${title} (${tour_id}).` : `Can your team help me with the ${title}?`)
+              actions.act(
+                { name: bookable ? "get_price" : "ask_team", context: { tour_id }, component: "TourCard" },
+                bookable ? `I'd like a price for the ${title} (${tour_id}).` : `Can your team help me with the ${title}?`,
+              )
             }
           >
             {bookable ? "Get a price" : "Ask our team"}

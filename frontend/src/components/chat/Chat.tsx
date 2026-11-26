@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Header } from "@/components/Header";
 import {
-  ApiError, FIRST_STEP, type HistoryMessage, ids, loadHistory, loadWelcome, STEP_LABELS, streamChat,
+  type ActionMessage, ApiError, FIRST_STEP, type HistoryMessage, ids, loadHistory, loadWelcome, STEP_LABELS, streamChat,
 } from "@/lib/api";
 import { brand } from "@/lib/brand";
 
@@ -21,7 +21,7 @@ const STARTERS = [
   "What's your cancellation policy?",
 ];
 
-type Failure = { message: string; retryable: boolean; text: string };
+type Failure = { message: string; retryable: boolean; text: string; action?: ActionMessage };
 
 let counter = 0;
 const nextId = () => `m${Date.now().toString(36)}${(counter++).toString(36)}`;
@@ -29,7 +29,7 @@ const nextId = () => `m${Date.now().toString(36)}${(counter++).toString(36)}`;
 /** A saved message as a chat item: Mira's replies come back with their cards, a specialist's as written. */
 const toItem = (m: HistoryMessage): ChatItem =>
   m.role === "mira"
-    ? { id: nextId(), role: "mira", text: m.text, ui: m.ui ?? [] }
+    ? { id: nextId(), role: "mira", text: m.text, ui: m.ui ?? [], a2ui: m.a2ui }
     : { id: nextId(), role: m.role, text: m.text };
 
 export function Chat() {
@@ -45,7 +45,7 @@ export function Chat() {
   const welcomeBack = useCallback(async (isAlive: () => boolean = () => true) => {
     const w = await loadWelcome();
     if (!w || !isAlive()) return;
-    setItems([{ id: nextId(), role: "mira", text: w.message, ui: w.ui }]);
+    setItems([{ id: nextId(), role: "mira", text: w.message, ui: w.ui, a2ui: w.a2ui }]);
     setReturning(true);
   }, []);
 
@@ -90,7 +90,9 @@ export function Chat() {
     window.scrollTo({ top: document.documentElement.scrollHeight });
   }, [items, thinking, failure]);
 
-  const ask = useCallback(async (text: string, isRetry = false) => {
+  // `text` is the traveller's bubble; a click on a card also carries its A2UI action, which is
+  // what the server gets (it writes the words itself)
+  const ask = useCallback(async (text: string, isRetry = false, action?: ActionMessage) => {
     setFailure(null);
     if (!isRetry) setItems((prev) => [...prev, { id: nextId(), role: "traveller", text }]);
     setThinking(true);
@@ -98,14 +100,14 @@ export function Chat() {
       setStep(FIRST_STEP);
       setNode(null);
       // AG-UI-style stream: progress per graph step, then the reply and its components
-      const res = await streamChat(text, (n) => {
+      const res = await streamChat(action ? { action } : { message: text }, (n) => {
         setStep(STEP_LABELS[n] ?? null);
         setNode(n);
       });
-      setItems((prev) => [...prev, { id: nextId(), role: "mira", text: res.message, ui: res.ui }]);
+      setItems((prev) => [...prev, { id: nextId(), role: "mira", text: res.message, ui: res.ui, a2ui: res.a2ui }]);
     } catch (err) {
       const e = err instanceof ApiError ? err : new ApiError("Something went wrong. Please try again.", true);
-      setFailure({ message: e.message, retryable: e.retryable, text });
+      setFailure({ message: e.message, retryable: e.retryable, text, action });
     } finally {
       setThinking(false);
     }
@@ -160,7 +162,7 @@ export function Chat() {
             </div>
           )}
 
-          <MessageList items={items} thinking={thinking} step={step} stage={stageOf(node)} send={(t) => ask(t)} />
+          <MessageList items={items} thinking={thinking} step={step} stage={stageOf(node)} send={(t) => ask(t)} sendAction={(a, label) => ask(label, false, a)} />
 
           {onlyWelcome && !thinking && (
             <div className="flex flex-wrap items-center gap-2 pl-11.5">
@@ -184,7 +186,7 @@ export function Chat() {
               {failure.retryable && (
                 <button
                   type="button"
-                  onClick={() => ask(failure.text, true)}
+                  onClick={() => ask(failure.text, true, failure.action)}
                   className="min-h-11 rounded-button bg-brand-orange px-4 py-1.5 text-brand-sm font-semibold text-ink hover:opacity-90"
                 >
                   Try again

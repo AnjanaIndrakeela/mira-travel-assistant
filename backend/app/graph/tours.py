@@ -241,3 +241,8 @@ def live_tours(content: ContentLibrary, rates: RateBook) -> list[CatalogTour]:
 
 def refresh_live_tours(content: ContentLibrary, rates: RateBook) -> None:
     _LIVE[:] = catalog(content, rates)
+
+
+def tour_name(tour_id: str) -> str | None:
+    """The title of a tour already loaded for the chat (None before the first turn loads them)."""
+    return next((t.name for t in _LIVE if t.tour_id == tour_id), None)

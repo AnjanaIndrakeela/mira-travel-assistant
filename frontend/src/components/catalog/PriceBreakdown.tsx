@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { z } from "zod";
+import { z } from "zod/v4";
 
 import { getQuote, type PublicQuote } from "@/lib/api";
 

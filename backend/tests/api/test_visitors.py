@@ -56,6 +56,8 @@ def test_welcome_re_prices_a_valid_last_quote(api, db):
     body = r.json()
     assert body["status"] == "ok" and body["quote_id"] and body["quote_id"] != str(quote.id)   # a new row
     assert body["ui"] == [{"type": "welcome_back", "tour_title": quote.tour_name, "quote_id": body["quote_id"]}]
+    comps = body["a2ui"][1]["updateComponents"]["components"]                 # the same card, as A2UI
+    assert [c["component"] for c in comps] == ["MiraReply", "WelcomeBack"] and comps[1]["quote_id"] == body["quote_id"]
     fresh = api.client.get(f"/api/v1/quotes/{body['quote_id']}").json()
     assert fresh["price_usd"] == 315 and "cost" not in str(body).lower()
     assert db.get(Visitor, visitor.id).last_quote_id == uuid.UUID(body["quote_id"])

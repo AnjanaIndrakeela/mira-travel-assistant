@@ -8,15 +8,15 @@ Conversational booking assistant for **Ceylon Compass Holidays**, a fictional Sr
 
 | # | Requirement | How Mira does it |
 |---|---|---|
-| 1 | Discover the trip (≤ 3 questions) | One LLM call per turn extracts the trip details; **code** decides what is still missing and asks one combined question at a time, at most 3 per conversation, before showing tours or a price. Mira always knows who is travelling before it suggests or prices a plan. A planner gets the **one** tour that fits best (it must cover every kind of trip asked for and be near the length wanted); the runner-up tours are kept only so a price can fall back to the next one. Trip type and traveller type are derived by code. |
+| 1 | Discover the trip (≤ 3 questions) | One LLM call per turn extracts the trip details; **code** decides what is still missing and asks one combined question at a time, at most 3 per conversation, before showing tours or a price. Mira always knows who is travelling before it suggests or prices a plan. A planner gets the **one** tour that fits best (it must cover every kind of trip asked for and be near the length wanted); the runner-up tours are kept only so a price can fall back to the next one. A **planner agent** also writes a day-by-day plan for that trip from our published pages (RAG), with tonight's hotel where our pages name one. The plan is an unpriced **draft**: it is saved on an enquiry for the team to confirm and price, and the closest published tour is still priced under it. Trip type and traveller type are derived by code. |
 | 2 | Remember returning visitors | An anonymous visitor ID keeps the party, interests and last quote (no names or contact details). A new chat reuses the interests. Last time's party is never priced silently: Mira asks the traveller to confirm it in one tap ("Last time it was 2 adults", picker preset), because a party can change between trips. "Welcome back" re-prices the last quote with today's rates. |
-| 3 | Generate the interface | Code picks components from a fixed catalog of 9. Every payload is validated on the server (Pydantic) and again in the browser (Zod). Styled from the dataset's brand pack; works at 375 px and on desktop. Tour cards show the places the card names in their photos and a "Where you'll stay" list taken from the tour's own page. |
+| 3 | Generate the interface | Code picks components from a fixed catalog of 10. Every payload is validated on the server (Pydantic) and again in the browser (Zod). Styled from the dataset's brand pack; works at 375 px and on desktop. Tour cards show the places the card names in their photos and a "Where you'll stay" list taken from the tour's own page. |
 | 4 | Answer from content only | Hybrid retrieval (Gemini embeddings + BM25) over published content only. Answers cite their sources, which are shown as chips. If the content doesn't answer it, Mira says so and offers the team. |
 | 5 | Quote correct prices | A deterministic pricing engine reads the rate workbook (seasons, group size, child and single supplements, margin, deposit). The LLM never does arithmetic. Each quote stores cost, price and GP% for staff; travellers see only price and deposit. |
 | 6 | Missing or expired rates | The engine refuses instead of guessing. Mira says a specialist will confirm, and the enquiry is flagged for staff with the reason. |
 | 7 | Private enquiries | Every quote is saved as an enquiry. The staff console lists them (flagged first) with notes, a follow-up status, and replies to the traveller. |
 | 8 | Approve AI-written content | Staff type a command ("Add a 5-day Hill Country tour using the Ella photos"); a second agent graph writes a draft. Only an Approver can publish (checked in code and by a database constraint); once published, Mira can answer about it. |
-| – | Mock booking and payment | A mock card payment re-checks the price first. A failure shows a friendly message and a way forward, and saves an enquiry; never an error page. |
+| – | Mock booking and payment | A mock card payment re-checks the price first. A confirmed booking also books **each hotel stay** from the rate sheet (mock), with the rooms that were priced, and lists them with their references. A failure shows a friendly message and a way forward, and saves an enquiry; never an error page. |
 
 ## Quick start
 
@@ -65,7 +65,7 @@ After editing `.env`, restart the backend: `docker compose up -d backend`.
 docker compose exec backend python -m pytest
 ```
 
-This runs about 920 unit, API and database tests, including the pricing engine's tests against the workbook's sample quotes. Tests that call Gemini are marked `live` and skipped by default (`python -m pytest -m live`).
+This runs about 960 unit, API and database tests, including the pricing engine's tests against the workbook's sample quotes. Tests that call Gemini are marked `live` and skipped by default (`python -m pytest -m live`).
 
 ## Architecture
 
@@ -78,7 +78,7 @@ flowchart LR
 
     subgraph Backend["Backend · FastAPI (Docker)"]
         API["/api/v1<br/>chat · chat/stream (AG-UI events)<br/>quotes · bookings · enquiries<br/>staff · auth · content"]
-        Graph["Conversation graph · LangGraph<br/>guard → discovery → route →<br/>price | match_tours | retrieve →<br/>respond → persist → build_ui"]
+        Graph["Conversation graph · LangGraph<br/>guard → discovery → route →<br/>price | match_tours | retrieve →<br/>plan_trip → respond → persist → build_ui"]
         Pricing["Pricing engine<br/>(deterministic code)"]
         RAG["Retriever<br/>FAISS + BM25<br/>published content only"]
         Guards["Guards<br/>input · output · UI validator"]
@@ -120,7 +120,9 @@ graph TD;
 	route -.-> retrieve;
 	price -.-> respond;
 	price -.->|"tell me about it too"| retrieve;
-	match_tours --> respond;
+	price -.->|no tour named| plan_trip;
+	match_tours --> plan_trip;
+	plan_trip --> respond;
 	retrieve --> respond;
 	respond --> persist;
 	persist --> build_ui;
@@ -134,23 +136,25 @@ graph TD;
 | `route` | code | Chooses the next step: ask (≤ 3 questions), price, suggest tours, retrieve, decline, hand off |
 | `price` | code | Calls the pricing engine; a refusal (missing or expired rate, too many travellers) becomes a "specialist will confirm" with a reason flag |
 | `match_tours` | code | Ranks the closest published tours for planners and custom requests |
+| `plan_trip` | LLM, checked by code | The planner agent: writes a day-by-day plan (with hotels our pages name) for this traveller from published pages and search results. Code rejects a plan with the wrong number of days, any price or discount, or a place or hotel our pages don't describe; then the best tour card is shown instead. Written once per set of trip details |
 | `retrieve` | code | Hybrid search over published content; abstains when nothing fits |
 | `respond` | LLM, checked by code | Words the reply from the verified facts and sources only (fixed wording when no LLM is needed) |
 | `persist` | code | Saves the quote (public and staff fields, trace ID) and its private enquiry, with flags |
 | `build_ui` | code | Output guard on the text (no amount that isn't a verified quote), then picks and validates UI components |
 
-The conversation state is kept per chat by a Postgres checkpointer, so Mira remembers the current chat after a reload or a restart. "New chat" starts a fresh thread.
+The conversation state is kept per chat by a Postgres checkpointer, so Mira remembers the current chat after a reload or a restart. "New chat" starts a fresh thread and **deletes the old chat** (its messages and cards; only the visitor who owns it can). Quotes, enquiries and specialist replies are kept for staff, and what R2 remembers about the visitor stays.
 
 ## Design decisions and trade-offs
 
 - **Code decides; the LLM reads and writes.** Gemini classifies the message, extracts trip details and words the reply. Routing, pricing, tour matching, permissions, publishing and UI selection are plain Python. *Trade-off:* less flexible conversation, but prices, flags and permissions are testable and can't be talked around.
 - **Prices never pass through the LLM.** The pricing engine returns the quote; the reply repeats its numbers from fixed wording, and the output guard removes any amount that isn't in a verified quote. Price components carry only a `quote_id`; the browser fetches the public quote. *Trade-off:* the price wording is fixed rather than natural.
+- **AI-written trip plans are drafts.** The planner agent writes a custom plan for each planner from our own pages, but it never has a price and is never booked as is: it goes to the team on an enquiry, and the closest published tour is what can be priced and booked now. *Trade-off:* the traveller sees an AI-written plan before a person has checked it, so it is clearly labelled as a draft our team confirms.
 - **Refuse instead of guess.** Missing hotel rates, expired rate periods, stale tour pages and unpriced services make the engine refuse with a reason code. Mira hands off and the enquiry is flagged. *Trade-off:* some trips can't be quoted instantly.
 - **One LLM call to read a turn.** Routing and extraction are one structured call, which halves the Gemini calls and quota use. The reply is a second call only when wording is needed; greetings, quotes and refusals use fixed wording.
 - **Three Gemini models with fallback.** A fast model reads turns, a strong model writes answers, and a backup takes over on overload, timeout or quota. If all fail, rule-based reading and fixed wording keep the chat working. *Trade-off:* fallback replies are plainer.
 - **Hybrid retrieval over published content only.** Embeddings plus BM25 catch both meaning and exact names. Drafts, rejected items and stale pages never reach the retriever; guest reviews are marked as opinion. *Trade-off:* an in-memory FAISS index, fine for this content size.
 - **Generative UI chosen by code from a fixed catalog.** The catalog is one JSON Schema exported from Pydantic, checked by Zod in the browser and by a drift test. *Trade-off:* the LLM can't invent new layouts.
-- **AG-UI-style SSE instead of CopilotKit.** `POST /chat/stream` sends AG-UI event types (`RUN_STARTED`, `STEP_FINISHED`, `TEXT_MESSAGE_*`, `CUSTOM ui_component`, `RUN_FINISHED`) over Server-Sent Events, read with `fetch`. CopilotKit would need its own Node runtime and a LangGraph state adapter. *Trade-off:* no CopilotKit features; the text arrives as one block because it is checked before it is shown.
+- **A2UI over AG-UI-style SSE, without CopilotKit.** `POST /chat/stream` sends AG-UI event types (`RUN_STARTED`, `STEP_FINISHED`, `TEXT_MESSAGE_*`, `CUSTOM a2ui`, `RUN_FINISHED`) over Server-Sent Events, read with `fetch`. Each reply's UI goes as A2UI v1.0 messages (`createSurface`, then `updateComponents`), one `CUSTOM a2ui` event each, converted only after the catalog check. The browser renders them with `@a2ui/react` (a `MiraReply` root lays out our cards). A click on a card (Get a price, the traveller picker, Get a new quote) goes back as an A2UI `action` message with a typed context; the server writes the traveller's words for it, and an unknown action is rejected (422). The booking and enquiry forms still post to their own endpoints, so card and contact details never pass through the chat. CopilotKit would need its own Node runtime and a LangGraph state adapter. *Trade-off:* no CopilotKit features; the text arrives as one block because it is checked before it is shown.
 - **Separation of duties for content.** Staff can draft; only an Approver can publish. This is enforced by `require_role()` and a database constraint (`published_needs_approver`), not by a prompt.
 - **Privacy by design.** Contact details and card numbers go straight from forms to `/enquiries` and `/bookings`, never through the chat, the LLM or the traces. Emails, phones and card-like numbers are masked before the model or Langfuse sees a message. Only the card type and last four digits are kept.
 - **The dataset stays as supplied.** It is mounted read-only and checked by hash. Its 30 data issues (text prices, missing rates, an inconsistent tour ID, a draft tour, an older duplicate page) are handled in loader code and listed in [docs/data-issues.md](docs/data-issues.md); see also [docs/data-notes.md](docs/data-notes.md).
@@ -182,13 +186,15 @@ Add `--case S02` (repeatable), `--category pricing` or `--requirement R6` to run
 docker compose exec -w / backend python -m evaluation.judge --calibrate
 ```
 
-**Report:** [evaluation/reports/evaluation_report.md](evaluation/reports/evaluation_report.md). It shows targets vs actual, the pass rate per requirement and per check, judge agreement, dataset integrity, and every failing case with its replies and Langfuse trace links. The first run is kept as [baseline_2026-11-24.md](evaluation/reports/baseline_2026-11-24.md).
+**Report:** [evaluation/reports/evaluation_report.md](evaluation/reports/evaluation_report.md). A short summary is in [evaluation/Mira_Evaluation_Report_short_v2.docx](evaluation/Mira_Evaluation_Report_short_v2.docx). It shows targets vs actual, the pass rate per requirement and per check, judge agreement, dataset integrity, and every failing case with its replies and Langfuse trace links. The first run is kept as [baseline_2026-11-24.md](evaluation/reports/baseline_2026-11-24.md).
 
 ## Known limitations
 
 - **Gemini availability.** On the free tier, Gemini is sometimes overloaded or out of quota. Mira then reads the turn with rules and replies with fixed wording, which is correct but plainer. A turn takes about 5 seconds on average, longer when models fall back.
-- **No CopilotKit or A2UI.** Generative UI uses AG-UI event types over SSE, with our own client (see the trade-off above). The reply text is not streamed word by word.
-- **Booking, payment and email are mocks.** No money moves, and the specialist's email is recorded, not sent.
+- **No CopilotKit.** Generative UI uses AG-UI event types and A2UI messages over SSE, with our own client (see the trade-off above). Chats saved before the A2UI move show their cards with the older renderer. The reply text is not streamed word by word.
+- **Booking, payment, hotels and email are mocks.** No money moves, hotel references are generated by us, and the specialist's email is recorded, not sent.
+- **The evaluation run predates the newest features.** The trip planner, hotel booking and new-chat delete came after the 60-case run; they are covered by unit and API tests only.
+- **A generated plan can be dropped.** If Gemini is unavailable or the plan fails a check, Mira shows the best published tour instead, so the plan card does not appear every time.
 - **Specialist replies are not pushed live.** The chat checks for new replies when the traveller comes back to the tab or reloads; there is no websocket.
 - **Duplicate enquiries.** A chat that is auto-flagged and then sends the contact form creates two enquiries for staff.
 - **A restored "Ask a specialist" card** shows its button again after a reload, even if the form was already sent.
@@ -249,6 +255,7 @@ evaluation/         runner, code checks, LLM judge, cases and reports
 frontend/           Next.js 15 + TypeScript + Tailwind v4 (port 3010)
   scripts/sync-brand.mjs     brand tokens generated from the dataset's brand_pack.json (npm run brand)
   scripts/check-catalog.mjs  checks the Zod catalog against the backend's JSON Schema (npm run check:catalog)
+  scripts/check-a2ui.mjs     runs a sample A2UI reply through @a2ui/web_core and checks bad ones are refused (npm run check:a2ui)
   src/lib/          brand tokens, API client, Zod catalog and its JSON Schema
   src/components/   Header, chat/ (Chat, Messages, Composer, TripPanel), catalog/ (generative UI)
   src/app/staff/    staff console: enquiries, enquiry detail, content drafts
@@ -259,7 +266,7 @@ docker-compose.yml  db (PostgreSQL 16) + backend + frontend
 
 ### Database
 
-Tables are created at startup if missing: visitors, conversations, quotes, enquiries, bookings, users, staff_sessions, enquiry_notes, specialist_replies, content_items and media, plus the LangGraph checkpoint tables for chat memory. Demo users and media are seeded. Both steps are safe to repeat. Tours, content and rates are never stored in the database: they are read from the dataset. Notes and specialist replies are append-only (a trigger refuses UPDATE and DELETE).
+Tables are created at startup if missing: visitors, conversations, quotes, enquiries, bookings, hotel_reservations, users, staff_sessions, enquiry_notes, specialist_replies, content_items and media, plus the LangGraph checkpoint tables for chat memory. Demo users and media are seeded. Both steps are safe to repeat. Tours, content and rates are never stored in the database: they are read from the dataset. Notes and specialist replies are append-only (a trigger refuses UPDATE and DELETE).
 
 ### API
 
@@ -270,12 +277,13 @@ All routes are under `/api/v1`; try them at <http://localhost:8000/docs>.
 | `POST /chat` | One traveller turn: `{message, conversation_id?, visitor_id?}` → reply, UI components, sources, `quote_id`. Send the `conversation_id` back to continue. |
 | `POST /chat/stream` | The same turn as an AG-UI-style event stream (Server-Sent Events), used by the chat UI |
 | `GET /conversations/{id}` | The messages so far, with each reply's components and any specialist replies |
+| `DELETE /conversations/{id}?visitor_id=` | "New chat": deletes the old chat (only its own visitor); staff records are kept |
 | `GET /visitors/{id}/welcome` | "Welcome back" for a returning visitor, with the last quote re-priced today |
 | `GET /quotes/{id}` | A saved quote, public fields only (never cost or margin) |
 | `POST /quotes` | A direct quote from a form, through the same pricing engine |
 | `POST /enquiries` | "Send to the team" with optional contact details |
 | `GET /tours/{id}` | A published tour (drafts are 404); prices in the text are masked |
-| `POST /bookings` | Mock booking: re-checks the price, then charges the deposit with the mock provider |
+| `POST /bookings` | Mock booking: re-checks the price, charges the deposit with the mock provider, and books each hotel stay (returned in `hotels`) |
 | `GET /health` | Status of the dataset, database, index, tracing and LLM |
 | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` | Staff sign-in with a session cookie |
 | `GET /staff/enquiries` | Staff: enquiries, flagged first; filter by `status` or `flagged` |
@@ -310,12 +318,13 @@ Chat in the terminal, with the state of each turn: `docker compose exec backend 
 
 ### Generative UI
 
-The catalog (`backend/app/ui/catalog.py`) has nine components: `traveller_picker`, `tour_card`, `itinerary_day`, `price_breakdown`, `booking_form`, `specialist_notice`, `source_list`, `photo_gallery` and `welcome_back`.
+The catalog (`backend/app/ui/catalog.py`) has ten components: `traveller_picker`, `tour_card`, `itinerary_day`, `price_breakdown`, `booking_form`, `specialist_notice`, `source_list`, `photo_gallery`, `welcome_back` and `trip_plan`.
 
-- **Code chooses, not the LLM.** `build_ui` picks components from the verified state (`app/ui/build.py`): a saved quote gives a tour card, a price card and a booking form; a refusal or an unanswered question gives a specialist notice; suggested tours give tour cards plus the top tour's day-by-day plan; a missing party gives the traveller picker.
+- **Code chooses, not the LLM.** `build_ui` picks components from the verified state (`app/ui/build.py`): a saved quote gives a tour card, a price card and a booking form; a refusal or an unanswered question gives a specialist notice; suggested tours give tour cards plus the top tour's day-by-day plan; a checked plan from the planner agent gives a `trip_plan` card (days, hotels, sources, no price) above the closest tour; a missing party gives the traveller picker.
 - **Prices never travel in a component.** `price_breakdown` and `booking_form` carry only a `quote_id`.
 - **Validated twice.** On the server against a Pydantic discriminated union with `extra="forbid"` (`app/guards/ui_validator.py`), which drops unknown types, extra props, markup, money amounts in text, and price components that don't point at this turn's quote; drops are recorded in the trace. In the browser again with Zod; each component has an error boundary.
-- **One contract.** `python -m app.ui.export` writes the catalog's JSON Schema to the frontend; a backend test fails if it is stale, and `npm run check:catalog` fails if the Zod schemas drift.
+- **One contract.** `python -m app.ui.export` writes the catalog's JSON Schema to the frontend; a backend test fails if it is stale, and `npm run check:catalog` fails if the Zod schemas drift. `npm run check:a2ui` runs a reply shaped like the backend's through the real A2UI processor (strict validation), checks each card converts back to one Zod accepts, and checks an unknown component or another catalog is refused.
+- **A2UI catalog.** The same command writes `frontend/src/lib/a2ui-catalog.json`: the catalog as an A2UI custom catalog (`catalogId` `https://ceylon-compass.example/catalog/v1`, one JSON Schema per component, named in PascalCase such as `TourCard`), generated from the same Pydantic models and checked by a test.
 
 **Screenshots** (`docs/screenshots/`, 1280 px and 375 px):
 
