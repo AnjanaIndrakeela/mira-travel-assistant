@@ -101,8 +101,17 @@ def _item(db: Session, item_id: uuid.UUID) -> ContentItem:
 @router.post("/staff/content", response_model=ItemOut, status_code=201, tags=["content"])
 def create(req: CommandIn, db: Session = Depends(get_db), user=Depends(require_role("staff"))) -> ItemOut:
     from app.data_loader import get_dataset
+    from app.graph.tracing import observe
+    from app.guards.input_guard import mask_personal_data
     flow = ContentFlow(get_dataset().content, media_rows(db))
-    result = flow.run(req.command)
+    with observe("write-tour-draft", input=mask_personal_data(req.command), tags=["content-writer"],
+                 user_id=f"staff:{user.id}") as traced:
+        result = flow.run(req.command, callbacks=traced.callbacks)
+        draft = result.get("draft") or {}
+        traced.finish(output={"title": draft.get("title"), "days": len(draft.get("days") or []),
+                              "errors": result.get("errors") or []},
+                      metadata={"passed_checks": not result.get("errors")},
+                      error=" ".join(result.get("errors") or []) or None)
     if result.get("errors"):
         raise HTTPException(422, "The draft didn't pass our checks: " + " ".join(result["errors"]))
     item = save_draft(db, result, created_by=user.id, command=req.command)

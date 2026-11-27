@@ -36,7 +36,8 @@ def route_message(message: str, history: Sequence[BaseMessage] = (), *, model=No
     msgs = [SystemMessage(content="You classify messages for a travel assistant. Reply only with JSON."),
             *list(history)[-6:],
             HumanMessage(content=load_prompt("router", company=COMPANY, message=message))]
-    return invoke_structured(RouterDecision, msgs, fallback=ROUTER_FALLBACK, model=model, config=config)
+    return invoke_structured(RouterDecision, msgs, fallback=ROUTER_FALLBACK, model=model, config=config,
+                             name="route-message")
 
 
 ANALYSIS_FALLBACK = TurnAnalysis(intent=Intent.HANDOFF, needs_retrieval=False, trip=EXTRACT_FALLBACK)
@@ -49,7 +50,8 @@ def analyse_turn(message: str, history: Sequence[BaseMessage], today: date, *, m
             HumanMessage(content=load_prompt("analyse_turn", company=COMPANY, today=today.isoformat(),
                                              conversation=transcript(history) or "(none yet)",
                                              message=message))]
-    return invoke_structured(TurnAnalysis, msgs, fallback=ANALYSIS_FALLBACK, model=model, config=config)
+    return invoke_structured(TurnAnalysis, msgs, fallback=ANALYSIS_FALLBACK, model=model, config=config,
+                             name="analyse-turn")
 
 
 def extract_trip(history: Sequence[BaseMessage], today: date, *, model=None,
@@ -57,4 +59,5 @@ def extract_trip(history: Sequence[BaseMessage], today: date, *, model=None,
     msgs = [SystemMessage(content="You extract trip details for a travel assistant. Reply only with JSON."),
             HumanMessage(content=load_prompt("extract_trip", today=today.isoformat(),
                                              conversation=transcript(history)))]
-    return invoke_structured(TripDetails, msgs, fallback=EXTRACT_FALLBACK, model=model, config=config)
+    return invoke_structured(TripDetails, msgs, fallback=EXTRACT_FALLBACK, model=model, config=config,
+                             name="extract-trip")

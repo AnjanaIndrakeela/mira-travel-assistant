@@ -590,7 +590,7 @@ class Nodes:
                 HumanMessage(content=prompt)]
         try:   # strong model; invoke_structured retries and switches to the fast one if needed
             ans = invoke_structured(GroundedAnswer, msgs, kind="strong", model=self._models("strong"),
-                                    config=config)
+                                    config=config, name="write-answer")
             text, cites = ans.answer.strip(), ans.citations
             abstained = ans.abstained and action == "retrieve"
         except Exception as exc:  # noqa: BLE001 (no key, API down, junk twice)

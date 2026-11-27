@@ -148,7 +148,8 @@ class ContentFlow:
         msgs = [SystemMessage(content=PLAN_SYSTEM),
                 HumanMessage(content=f"Destination slugs: {', '.join(self.places)}\nMedia tags: "
                                      f"{', '.join(self.tags) or 'none'}\n\nCOMMAND:\n{state['command']}")]
-        p = invoke_structured(ContentPlan, msgs, kind="fast", fallback=rules, model=self.model)
+        p = invoke_structured(ContentPlan, msgs, kind="fast", fallback=rules, model=self.model,
+                              name="plan-content")
         places = [x for x in p.places if x in self.places] or rules.places
         tag = p.media_tag if p.media_tag in self.tags else rules.media_tag
         days = rules.days if DAYS.search(state["command"]) or NIGHTS.search(state["command"]) else p.days
@@ -178,7 +179,8 @@ class ContentFlow:
                 HumanMessage(content=f"PLAN: {plan.title}; {plan.days} days; places: {', '.join(plan.places)}\n\n"
                                      f"SOURCES:\n{text}")]
         try:
-            d = invoke_structured(TourDraft, msgs, kind="strong", model=self.model)
+            d = invoke_structured(TourDraft, msgs, kind="strong", model=self.model,
+                                  name="draft-tour")
         except Exception as exc:  # noqa: BLE001  (Gemini unavailable)
             return {"sources": sources, "media": media,
                     "errors": [f"The writer is unavailable right now ({exc.__class__.__name__}). Try again shortly."]}
@@ -218,8 +220,9 @@ class ContentFlow:
         g.add_edge("validate", END)
         return g.compile()
 
-    def run(self, command: str) -> FlowState:
-        return self.graph().invoke({"command": command, "errors": []})
+    def run(self, command: str, *, callbacks: list | None = None) -> FlowState:
+        config = {"run_name": "content-graph", "callbacks": callbacks} if callbacks else None
+        return self.graph().invoke({"command": command, "errors": []}, config)
 
 
 # ---- save / publish / library ------------------------------------------------------------------------

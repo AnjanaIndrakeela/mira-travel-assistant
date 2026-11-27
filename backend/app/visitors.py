@@ -34,6 +34,19 @@ WHY = {"date_in_past": "the start date has passed", "expired_rate": "the rate ha
        "date_out_of_range": "rates aren't fixed for those dates yet"}
 
 
+def _tour_title(tour_id: str) -> str | None:
+    """The tour's name for the card, never its ID (no name: the card just says welcome back)."""
+    from app.graph.tours import tour_name
+    if name := tour_name(tour_id):          # the live list, including tours staff published
+        return name
+    try:
+        from app.data_loader import get_dataset
+        doc = get_dataset().content.get(tour_id)
+        return doc.title if doc else None
+    except Exception:  # noqa: BLE001  (dataset not loadable: no name rather than an ID)
+        return None
+
+
 def _uuid(value: Any) -> uuid.UUID | None:
     try:
         return uuid.UUID(str(value)) if value else None
@@ -97,7 +110,7 @@ def welcome(session: Session, visitor_id: Any, deps=None) -> dict | None:
                                  settings=deps.settings)
         doc = deps.content.get(old.tour_id)
     title = (result.staff.public.tour_name if result.staff else None) or old.tour_name \
-        or (doc.title if doc else old.tour_id)
+        or (doc.title if doc else None) or _tour_title(old.tour_id)
     if result.status == "ok":
         fresh = save_quote(session, result)            # the re-verified price, a new row
         visitor.last_quote_id = fresh.id

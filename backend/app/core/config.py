@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     langfuse_host: str = "https://cloud.langfuse.com"
+    # Which deployment a trace came from (Langfuse "environment"; lower case, e.g. production).
+    langfuse_tracing_environment: str = "development"
+    # The app release shown on traces (e.g. a git sha). Empty = none.
+    langfuse_release: str | None = None
     # For trace links on the staff page. Empty = looked up once from the Langfuse API.
     langfuse_project_id: str | None = None
 

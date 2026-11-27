@@ -131,7 +131,8 @@ class TripPlanner:
                                      f"SOURCES:\n{text}")]
         from app.llm.structured import invoke_structured
         try:
-            draft = invoke_structured(PlanDraft, msgs, kind="strong", model=self.model)
+            draft = invoke_structured(PlanDraft, msgs, kind="strong", model=self.model,
+                                      name="draft-trip-plan")
         except Exception as exc:  # noqa: BLE001  (model unavailable: the best tour card instead)
             logger.info("planner unavailable: %s", exc.__class__.__name__)
             return None

@@ -153,9 +153,13 @@ class _Lazy:
 
 
 def invoke_structured(schema: type[T], messages: Sequence[BaseMessage], *, kind: ModelKind = "fast",
-                      fallback: T | None = None, model: Any = None, config: dict | None = None) -> T:
-    """Return a validated `schema` object, the fallback, or raise. `model` is for tests."""
+                      fallback: T | None = None, model: Any = None, config: dict | None = None,
+                      name: str | None = None) -> T:
+    """Return a validated `schema` object, the fallback, or raise. `model` is for tests.
+    `name` labels the call in traces: the chain is `name`, the Gemini call `name`-generation."""
     messages = list(messages)
+    if name:
+        config = {**(config or {}), "run_name": name}
     error: Any = None
     repaired = False
     deadline = _clock() + (budget_seconds() if model is None else BUDGET_SECONDS)
@@ -167,6 +171,8 @@ def invoke_structured(schema: type[T], messages: Sequence[BaseMessage], *, kind:
         waits = list(WAITS[min(i, len(WAITS) - 1)])
         try:
             m = candidate.get() if isinstance(candidate, _Lazy) else candidate
+            if name and isinstance(candidate, _Lazy):
+                m = _named(m, f"{name}-generation")
             method = structured_method() if isinstance(candidate, _Lazy) else "json_schema"
             runnable = m.with_structured_output(schema, method=method, include_raw=True)
         except Exception as exc:  # noqa: BLE001  (no key)
@@ -206,6 +212,14 @@ def invoke_structured(schema: type[T], messages: Sequence[BaseMessage], *, kind:
                                      "Reply again with only valid JSON for the schema."),
             ]
     return _give_up(schema, fallback, error)
+
+
+def _named(model: Any, name: str) -> Any:
+    """A copy of the chat model that shows up in traces under `name` (not its class name)."""
+    try:
+        return model.model_copy(update={"name": name})
+    except Exception:  # noqa: BLE001  (not a pydantic model: keep the default name)
+        return model
 
 
 def _give_up(schema: type[T], fallback: T | None, error: Any) -> T:

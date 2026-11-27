@@ -229,7 +229,7 @@ All settings are environment variables; see `.env.example` for the full list. Th
 - `OLLAMA_BASE_URL`: optional local model through Ollama (`qwen3:4b` by default), reached at `host.docker.internal:11434`.
 - `MIRA_MARGIN_DAY` / `MIRA_MARGIN_MULTIDAY`: optional margin overrides; if empty, the rate workbook's values are used.
 - `MIRA_STAFF_EMAIL` / `MIRA_STAFF_PASSWORD` and `MIRA_APPROVER_EMAIL` / `MIRA_APPROVER_PASSWORD`: the two demo staff accounts, created at startup only if a password is set, stored hashed.
-- `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` / `LANGFUSE_PROJECT_ID`: optional tracing.
+- `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` / `LANGFUSE_PROJECT_ID` / `LANGFUSE_TRACING_ENVIRONMENT` / `LANGFUSE_RELEASE`: optional tracing.
 
 ### Project layout
 
@@ -312,7 +312,7 @@ Every quote is saved with its public and staff fields and the Langfuse `trace_id
 
 ### Tracing
 
-With the Langfuse keys set, each traveller turn is **one trace**, grouped by conversation as a session. It holds a span for every graph node and every Gemini call, the prompt version, the retrieved content and the price calculation. Emails, phone numbers and card-like numbers are masked before anything is sent to Langfuse. If Langfuse is unreachable, chat keeps working without traces.
+With the Langfuse keys set, each traveller turn is **one trace** (`mira-turn`, tag `chat`), grouped by conversation as a session, and each staff draft is one trace (`write-tour-draft`, tag `content-writer`). Graph nodes carry their real observation type (`guard` is a guardrail, `retrieve` and `match_tours` are retrievers, `price` is a tool, `plan_trip` is an agent), and every Gemini call is a named generation (`analyse-turn-generation`, `write-answer-generation`, `draft-trip-plan-generation`, ...) with model, tokens and cost. Traces also carry the prompt version, the environment (`LANGFUSE_TRACING_ENVIRONMENT`, default `development`) and, if set, the release (`LANGFUSE_RELEASE`). LangChain plumbing such as output parsers is not exported. Emails, phone numbers and card-like numbers are masked before anything is sent to Langfuse. If Langfuse is unreachable, chat keeps working without traces.
 
 Chat in the terminal, with the state of each turn: `docker compose exec backend python -m app.graph.cli --debug`.
 

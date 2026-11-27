@@ -113,3 +113,18 @@ def test_a_visitor_who_chatted_without_a_price_is_welcomed_back(api, db):
     assert body["ui"] == [{"type": "welcome_back", "tour_title": None, "quote_id": None}]
     comps = body["a2ui"][1]["updateComponents"]["components"]
     assert [c["component"] for c in comps] == ["MiraReply", "WelcomeBack"]
+
+
+def test_welcome_names_the_tour_even_when_its_quote_has_no_name(api, db):
+    # a quote that needed a specialist is saved without a tour name: the card must still show
+    # the tour's title, never its ID ("Last time you looked at the T12")
+    old = calculate_quote(QuoteRequest(tour_id="T12", start_date=date(2027, 4, 10), adults=1))
+    assert old.status == "needs_specialist"
+    row = save_quote(db, old)
+    visitor = Visitor(id=uuid.uuid4(), party={"adults": 1, "child_ages": []}, last_quote_id=row.id)
+    db.add(visitor)
+    db.flush()
+    body = api.client.get(f"/api/v1/visitors/{visitor.id}/welcome").json()
+    card = body["ui"][0]
+    assert card["type"] == "welcome_back" and card["tour_title"] == "Treasures of Sri Lanka"
+    assert "T12" not in str(body["ui"])
